@@ -1,0 +1,84 @@
+<?xml version="1.0" ?>
+<robot name="Door" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+<xacro:include filename="materials.xacro" />
+<link name="base_link">
+  <inertial>
+    <origin xyz="0.5819937463998599 0.08316123619424477 1.32746546620251" rpy="0 0 0"/>
+    <mass value="219.40985500000056"/>
+    <inertia ixx="111.289107" iyy="183.94816" izz="73.563072" ixy="-0.447727" iyz="0.177886" ixz="-1.575941"/>
+  </inertial>
+  <visual>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="../meshes/base_link.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+    <material name="silver"/>
+  </visual>
+  <collision>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="../meshes/base_link.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+  </collision>
+</link>
+
+<link name="door_1">
+  <inertial>
+    <origin xyz="0.6114943756434033 0.021524038169472005 -1.0699955233309146" rpy="0 0 0"/>
+    <mass value="882.0500765437021"/>
+    <inertia ixx="336.462532" iyy="445.879122" izz="109.689348" ixy="-0.011927" iyz="-0.000108" ixz="-0.002221"/>
+  </inertial>
+  <visual>
+    <origin xyz="0.001 -0.0 -2.142" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="../meshes/door_1.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+    <material name="silver"/>
+  </visual>
+  <collision>
+    <origin xyz="0.001 -0.0 -2.142" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="../meshes/door_1.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+  </collision>
+</link>
+
+<link name="handle_1">
+  <inertial>
+    <origin xyz="-0.04174341394066472 0.03455244493582224 -3.4501106416229277e-09" rpy="0 0 0"/>
+    <mass value="0.5043887416723644"/>
+    <inertia ixx="8.2e-05" iyy="0.000698" izz="0.00074" ixy="8.9e-05" iyz="-0.0" ixz="0.0"/>
+  </inertial>
+  <visual>
+    <origin xyz="-1.173 -0.0557 -1.102" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="../meshes/handle_1.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+    <material name="silver"/>
+  </visual>
+  <collision>
+    <origin xyz="-1.173 -0.0557 -1.102" rpy="0 0 0"/>
+    <geometry>
+      <mesh filename="../meshes/handle_1.stl" scale="0.001 0.001 0.001"/>
+    </geometry>
+  </collision>
+</link>
+
+<joint name="door_joint" type="revolute">
+  <origin xyz="-0.001 0.0 2.142" rpy="0 0 0"/>
+  <parent link="base_link"/>
+  <child link="door_1"/>
+  <axis xyz="0.0 0.0 -1.0"/>
+  <limit upper="1.570796" lower="0.0" effort="100" velocity="100"/>
+</joint>
+
+<joint name="handle_joint" type="revolute">
+  <origin xyz="1.174 0.0557 -1.04" rpy="0 0 0"/>
+  <parent link="door_1"/>
+  <child link="handle_1"/>
+  <axis xyz="-0.0 1.0 -0.0"/>
+  <limit upper="0.0" lower="-1.570796" effort="100" velocity="100"/>
+</joint>
+
+</robot>
