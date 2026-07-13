@@ -279,6 +279,15 @@ def align_grasp_pose_v2(
     side_weight: float = 0.0,
     open_weight: float = 0.0,
 ) -> torch.Tensor:
+    cache = getattr(env, "_stage0_reward_step_cache", None)
+    cache_key = (
+        "align_grasp_pose_v2",
+        handle_cfg.name, repr(handle_cfg.body_ids), hand_cfg.name, repr(hand_cfg.body_ids),
+        tuple(hook_approach_axis_hand), tuple(hook_mouth_axis_hand), int(handle_approach_axis),
+        float(expected_approach_sign), tuple(world_down_axis), float(approach_weight), float(mouth_down_weight),
+    )
+    if cache is not None and cache_key in cache:
+        return cache[cache_key]
     terms = align_grasp_pose_v2_terms(
         env=env,
         handle_cfg=handle_cfg,
@@ -301,7 +310,10 @@ def align_grasp_pose_v2(
         side_weight=side_weight,
         open_weight=open_weight,
     )
-    return terms["score"]
+    score = terms["score"]
+    if cache is not None:
+        cache[cache_key] = score
+    return score
 
 
 # -----------------------------------------------------------------------------
@@ -989,8 +1001,9 @@ def anti_release_after_press_to_open(
     door_closed_pos: float = 0.0,
     door_open_sign: float = 1.0,
     push_enter_open: float = 0.02,
-    door_open_threshold: float = 0.35,
-    # --- transition window only ---
+    door_open_threshold: float = 0.80,
+    # --- keep phase end ---
+    # Deprecated and intentionally unused: retained for older Hydra configs.
     max_keep_steps_after_unlock: int = 8,
     keep_until_door_open: bool = True,
     # --- reward scales ---
@@ -1080,7 +1093,7 @@ def anti_release_after_press_to_open(
         env._prev_ep_len_keep_transition = env.episode_length_buf.clone()
 
     # ------------------------------------------------------------
-    # 5) unlock/open phase latch
+    # 5) press-to-open phase latch
     # ------------------------------------------------------------
     unlock_latch = torch.zeros(N, dtype=torch.bool, device=device)
     if use_unlock_success_latch and hasattr(env, "_unlock_success_given"):
@@ -1094,30 +1107,22 @@ def anti_release_after_press_to_open(
 
     if (not hasattr(env, "_keep_transition_phase")) or (env._keep_transition_phase.shape[0] != N):
         env._keep_transition_phase = torch.zeros(N, dtype=torch.bool, device=device)
-    if (not hasattr(env, "_keep_transition_ttl")) or (env._keep_transition_ttl.shape[0] != N):
-        env._keep_transition_ttl = torch.zeros(N, dtype=torch.int32, device=device)
     if (not hasattr(env, "_keep_transition_prev_keep_ok")) or (env._keep_transition_prev_keep_ok.shape[0] != N):
         env._keep_transition_prev_keep_ok = torch.zeros(N, dtype=torch.bool, device=device)
 
     if reset_mask is not None:
         env._keep_transition_phase = torch.where(reset_mask, torch.zeros_like(env._keep_transition_phase), env._keep_transition_phase)
-        env._keep_transition_ttl = torch.where(reset_mask, torch.zeros_like(env._keep_transition_ttl), env._keep_transition_ttl)
         env._keep_transition_prev_keep_ok = torch.where(reset_mask, torch.zeros_like(env._keep_transition_prev_keep_ok), env._keep_transition_prev_keep_ok)
 
-    newly = phase_raw & (~env._keep_transition_phase)
     env._keep_transition_phase = env._keep_transition_phase | phase_raw
-    env._keep_transition_ttl = torch.where(
-        newly,
-        torch.full_like(env._keep_transition_ttl, int(max_keep_steps_after_unlock)),
-        torch.clamp(env._keep_transition_ttl - 1, min=0),
-    )
-
-    phase = env._keep_transition_ttl > 0
+    # Once pressing starts, keep this reward active across unlock and pushing.
+    # It ends only at the configured door angle (or at episode reset).
+    phase = env._keep_transition_phase
     if keep_until_door_open:
         phase = phase & (door_open < float(door_open_threshold))
 
     # ------------------------------------------------------------
-    # 6) release event inside short window only
+    # 6) release event during the full press-to-open interval
     # ------------------------------------------------------------
     prev_keep = env._keep_transition_prev_keep_ok
     env._keep_transition_prev_keep_ok = phase & keep_ok
@@ -1128,13 +1133,13 @@ def anti_release_after_press_to_open(
     # ------------------------------------------------------------
     # 7) reward
     # ------------------------------------------------------------
-    # only weak positive reward in the transition window
+    # only weak positive reward while maintaining the hook through the transition
     hold_rew = (phase & keep_ok).float() * (float(hold_reward) + float(progress_boost) * handle_prog)
 
     event_pen = float(release_event_penalty) * release_event.float()
     lost_pen = float(lost_penalty) * lost.float()
 
-    # if released and door still moves in this short window, penalize a bit
+    # if released and the door still moves before the target angle, penalize a bit
     auto_open = phase & (~keep_ok) & (door_open > float(push_enter_open))
     auto_pen = float(auto_open_penalty) * auto_open.float()
 

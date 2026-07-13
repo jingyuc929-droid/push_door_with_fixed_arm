@@ -203,9 +203,9 @@ class ActionsCfg:
             "RR_calf_joint",
         ],
         arm_joint_names=["link1_joint", "link2_joint", "link3_joint", "link4_joint", "link5_joint", "link6_joint"],
-        arm_action_scale=(0.8, 0.8, 0.8, 0.8, 0.6, 0.6),
-        arm_target_smoothing_alpha=0.35,
-        arm_target_max_delta=0.08,
+        arm_action_scale=(0.40, 0.40, 0.40, 0.35, 0.30, 0.30),
+        arm_target_smoothing_alpha=0.15,
+        arm_target_max_delta=0.025,
         use_default_arm_offset=True,
         use_stage2_action_scale=True,
         stage2_arm_scale=0.60,
@@ -499,7 +499,7 @@ _STAGE0_BASE_TO_PICK_STANCE = {
         "robot_cfg": SceneEntityCfg("robot"),
         "handle_cfg": _STAGE0_HANDLE_CFG,
         "handle_offset_h": _STAGE0_HANDLE_OFFSET,
-        "stance_offset_w": (-0.3, 0.3, 0.0),
+        "stance_offset_w": (-0.3, 0.4, 0.0),
         "std": 0.6,
     },
 }
@@ -565,6 +565,21 @@ _STAGE0_EE_TO_OBJECT_SHAPED = {
         "k_slow": 0.5,
     },
 }
+_STAGE0_ALIGN_GRASP_POSE = {
+    "func": mdp.align_grasp_pose_v2,
+    "weight": 0.5,
+    "params": {
+        "hand_cfg": _STAGE0_EE_CFG,
+        "handle_cfg": _STAGE0_HANDLE_CFG,
+        "hook_approach_axis_hand": (0.0, 1.0, 0.0),
+        "hook_mouth_axis_hand": (1.0, 0.0, 0.0),
+        "handle_approach_axis": 1,
+        "expected_approach_sign": -1.0,
+        "world_down_axis": (0.0, 0.0, -1.0),
+        "approach_weight": 0.70,
+        "mouth_down_weight": 0.30,
+    },
+}
 _STAGE0_GRASPING_SUCCESS_SHAPED = {
     "func": mdp.grasping_success_shaped,
     "weight": 3.0,
@@ -584,6 +599,7 @@ _STAGE0_REWARD_TERMS = {
     "pick_reached_success": _STAGE0_PICK_REACHED_SUCCESS,
     "ee_object_contact": _STAGE0_EE_OBJECT_CONTACT,
     "ee_to_object_shaped": _STAGE0_EE_TO_OBJECT_SHAPED,
+    "align_grasp_pose": _STAGE0_ALIGN_GRASP_POSE,
     "grasping_success_shaped": _STAGE0_GRASPING_SUCCESS_SHAPED,
     "grasp_stable_progress": _STAGE0_GRASP_STABLE_PROGRESS,
 }
@@ -649,8 +665,7 @@ class RewardsCfg:
                 "door_closed_pos": 0.0,
                 "door_open_sign": 1.0,
                 "push_enter_open": 0.02,
-                "door_open_threshold": 0.35,
-                "max_keep_steps_after_unlock": 24,
+                "door_open_threshold": 0.80,
                 "keep_until_door_open": True,
                 "hold_reward": 0.01,
                 "progress_boost": 0.04,
@@ -791,7 +806,7 @@ class RewardsCfg:
 
     base_safety = RewTerm(
         func=mdp.base_safety_reward,
-        weight=1.0,
+        weight=2.0,
         params={
             "robot_cfg": SceneEntityCfg("robot"),
             "door_joint_cfg": SceneEntityCfg("door", joint_names=["door_joint"]),

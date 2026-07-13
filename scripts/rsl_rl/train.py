@@ -145,6 +145,7 @@ _CONSOLE_METRIC_ORDER = (
     "stage_gated_reward/pick_reached_success",
     "stage_gated_reward/ee_object_contact",
     "stage_gated_reward/ee_to_object_shaped",
+    "stage_gated_reward/align_grasp_pose",
     "stage_gated_reward/grasping_success_shaped",
     "stage_gated_reward/grasp_stable_progress",
     "stage_gated_reward/stage0_reward",
