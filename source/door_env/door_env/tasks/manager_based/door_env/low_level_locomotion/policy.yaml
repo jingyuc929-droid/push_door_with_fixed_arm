@@ -1,0 +1,60 @@
+load_run: "2026-06-29_16-13-14"
+checkpoint: "model_30000"
+dt: 0.02
+joint_names:
+  [
+    "FL_hip_joint",
+    "FR_hip_joint",
+    "RL_hip_joint",
+    "RR_hip_joint",
+    "FL_thigh_joint",
+    "FR_thigh_joint",
+    "RL_thigh_joint",
+    "RR_thigh_joint",
+    "FL_calf_joint",
+    "FR_calf_joint",
+    "RL_calf_joint",
+    "RR_calf_joint",
+    "link1_joint",
+    "link2_joint",
+    "link3_joint",
+    "link4_joint",
+    "link5_joint",
+    "link6_joint",
+  ]
+default_joint_pos: [-0.0500, 0.0500, -0.0500, 0.0500, 0.7500, 0.7500, 0.7500, 0.7500, -1.5000, -1.5000, -1.5000, -1.5000, 0.0000, 1.5000, -0.8000, 0.0000, 0.4000, 0.0000]
+input_names: ["actor_obs", "vae_obs"]
+output_names: ["actions"]
+input_obs_names_map:
+  {
+    actor_obs: ["base_ang_vel_nad", "projected_gravity_nad", "joint_pos_rel_nad", "joint_vel_rel_nad", "actions_gt", "base_commands_gt"],
+    vae_obs: ["base_ang_vel_nad", "projected_gravity_nad", "joint_pos_rel_nad", "joint_vel_rel_nad", "actions_gt", "base_commands_gt"],
+  }
+input_obs_scales_map:
+  {
+    actor_obs: { base_ang_vel_nad: 0.25, projected_gravity_nad: 1.0, joint_pos_rel_nad: 1.0, joint_vel_rel_nad: 0.05, actions_gt: 0.25, base_commands_gt: [2.0, 2.0, 0.25, 2.0, 1.0] },
+    vae_obs: { base_ang_vel_nad: 0.25, projected_gravity_nad: 1.0, joint_pos_rel_nad: 1.0, joint_vel_rel_nad: 0.05, actions_gt: 0.25, base_commands_gt: [2.0, 2.0, 0.25, 2.0, 1.0] },
+  }
+input_obs_size_map:
+  {
+    actor_obs: 47,
+    vae_obs: 47,
+  }
+action_scale: 0.25
+clip_actions: 100.0
+clip_obs: 100.0
+obs_history_length: { actor_obs: 1, vae_obs: 5 }
+joint_kp: [75.0, 75.0, 75.0, 75.0, 75.0, 75.0, 75.0, 75.0, 75.0, 75.0, 75.0, 75.0, 25.0, 25.0, 25.0, 25.0, 25.0, 25.0]
+joint_kd: [2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+velocity_x_forward_scale: 1.0
+velocity_x_backward_scale: 0.7
+velocity_y_scale: 0.5
+velocity_yaw_scale: 1.0
+max_velocity: [1.0, 0.6, 1.5]
+max_acceleration: [1.5, 1.5, 6]
+max_jerk: [5, 5, 30]
+threshold:
+  limit_lower: -0.0
+  limit_upper: 0.0
+  damping: 5.0
+max_torques: [80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0, 80.0]

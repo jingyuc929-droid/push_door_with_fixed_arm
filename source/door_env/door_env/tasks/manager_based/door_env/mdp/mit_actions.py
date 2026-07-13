@@ -27,16 +27,16 @@ def _as_tensor(x, device, dim: int, name: str) -> torch.Tensor:
     return t
 
 
-class ARX5MITJointAction(ActionTerm):
-    """MIT-style joint impedance action for ARX5 6-DOF arm.
+class PiperHookMITJointAction(ActionTerm):
+    """MIT-style joint impedance action for the Piper hook 6-DOF arm.
 
     Policy action -> q_des
     Per sim step -> tau = Kp * (q_des - q) + Kd * (dq_des - dq) + tau_ff
     """
 
-    cfg: "ARX5MITJointActionCfg"
+    cfg: "PiperHookMITJointActionCfg"
 
-    def __init__(self, cfg: "ARX5MITJointActionCfg", env):
+    def __init__(self, cfg: "PiperHookMITJointActionCfg", env):
         super().__init__(cfg, env)
 
         self._env = env
@@ -306,10 +306,10 @@ class ARX5MITJointAction(ActionTerm):
 
 
 @configclass
-class ARX5MITJointActionCfg(ActionTermCfg):
-    """Config for ARX5 MIT-style joint impedance action."""
+class PiperHookMITJointActionCfg(ActionTermCfg):
+    """Config for Piper hook MIT-style joint impedance action."""
 
-    class_type: type[ActionTerm] = ARX5MITJointAction
+    class_type: type[ActionTerm] = PiperHookMITJointAction
 
     asset_name: str = "robot"
     joint_names: list[str] = MISSING

@@ -16,6 +16,139 @@ from .rewards import (
     )
 
 
+def _termination_reset_mask(env: ManagerBasedRLEnv, key: str, n: int) -> torch.Tensor:
+    """Return per-env reset mask for stateful termination counters."""
+    if hasattr(env, "reset_buf"):
+        try:
+            return env.reset_buf.to(dtype=torch.bool)
+        except Exception:
+            pass
+
+    prev_key = f"_prev_ep_len_{key}"
+    if (not hasattr(env, prev_key)) or (getattr(env, prev_key).shape[0] != n):
+        setattr(env, prev_key, env.episode_length_buf.clone())
+    prev = getattr(env, prev_key)
+    reset_mask = (env.episode_length_buf < prev) | (env.episode_length_buf == 0)
+    setattr(env, prev_key, env.episode_length_buf.clone())
+    return reset_mask
+
+
+def _door_joint_angle(
+    env: ManagerBasedRLEnv,
+    door_joint_cfg: SceneEntityCfg,
+    door_closed_pos: float = 0.0,
+    door_open_sign: float = 1.0,
+) -> torch.Tensor:
+    door: Articulation = env.scene[door_joint_cfg.name]
+    jids = door_joint_cfg.joint_ids
+    pos = door.data.joint_pos[:, jids[0]] if len(jids) == 1 else door.data.joint_pos[:, jids].mean(dim=-1)
+    return torch.clamp(float(door_open_sign) * (pos - float(door_closed_pos)), min=0.0)
+
+
+def base_bad_orientation(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    door_joint_cfg: SceneEntityCfg = SceneEntityCfg("door", joint_names=["door_joint"]),
+    doorway_forward_axis: tuple[float, float] = (1.0, 0.0),
+    door_closed_pos: float = 0.0,
+    door_open_sign: float = 1.0,
+    traverse_stage_angle: float = 0.70,
+    min_base_displacement: float = 0.15,
+    require_traverse_stage: bool = True,
+    require_base_displacement: bool = True,
+    hard_yaw_error: float = 2.09,
+    hard_steps: int = 60,
+    soft_yaw_error: float = 1.57,
+    soft_steps: int = 100,
+) -> torch.Tensor:
+    """Terminate if base faces away from doorway for many consecutive steps."""
+    robot: Articulation = env.scene[robot_cfg.name]
+    base_xy = robot.data.root_pos_w[:, :2]
+    n = base_xy.shape[0]
+    reset_mask = _termination_reset_mask(env, "base_bad_orientation", n)
+
+    if (not hasattr(env, "_base_bad_orientation_init_xy")) or (env._base_bad_orientation_init_xy.shape[0] != n):
+        env._base_bad_orientation_init_xy = base_xy.detach().clone()
+    env._base_bad_orientation_init_xy = torch.where(
+        reset_mask.unsqueeze(-1),
+        base_xy.detach(),
+        env._base_bad_orientation_init_xy,
+    )
+
+    displacement = torch.linalg.norm(base_xy - env._base_bad_orientation_init_xy, dim=-1)
+    base_moved_enough = displacement > float(min_base_displacement)
+    traverse_stage = _door_joint_angle(env, door_joint_cfg, door_closed_pos, door_open_sign) >= float(traverse_stage_angle)
+
+    door: Articulation = env.scene[door_joint_cfg.name]
+    axis_d = torch.tensor(
+        (doorway_forward_axis[0], doorway_forward_axis[1], 0.0),
+        dtype=robot.data.root_pos_w.dtype,
+        device=robot.data.root_pos_w.device,
+    ).view(1, 3).expand(n, 3)
+    axis_w = quat_rotate(door.data.root_quat_w, axis_d)
+    axis_b = quat_rotate(quat_conjugate(robot.data.root_quat_w), axis_w)
+    yaw_error = torch.atan2(axis_b[:, 1], axis_b[:, 0])
+    abs_yaw_error = torch.abs(yaw_error)
+
+    active = torch.ones(n, dtype=torch.bool, device=env.device)
+    if require_traverse_stage:
+        active = active & traverse_stage
+    if require_base_displacement:
+        active = active & base_moved_enough
+    hard_bad = active & (abs_yaw_error > float(hard_yaw_error))
+    soft_bad = active & (abs_yaw_error > float(soft_yaw_error))
+
+    if (not hasattr(env, "_base_bad_orientation_hard_counter")) or (
+        env._base_bad_orientation_hard_counter.shape[0] != n
+    ):
+        env._base_bad_orientation_hard_counter = torch.zeros(n, dtype=torch.int32, device=env.device)
+    if (not hasattr(env, "_base_bad_orientation_soft_counter")) or (
+        env._base_bad_orientation_soft_counter.shape[0] != n
+    ):
+        env._base_bad_orientation_soft_counter = torch.zeros(n, dtype=torch.int32, device=env.device)
+
+    env._base_bad_orientation_hard_counter = torch.where(
+        reset_mask | (~hard_bad),
+        torch.zeros_like(env._base_bad_orientation_hard_counter),
+        env._base_bad_orientation_hard_counter + 1,
+    )
+    env._base_bad_orientation_soft_counter = torch.where(
+        reset_mask | (~soft_bad),
+        torch.zeros_like(env._base_bad_orientation_soft_counter),
+        env._base_bad_orientation_soft_counter + 1,
+    )
+
+    done = (
+        env._base_bad_orientation_hard_counter >= int(max(1, hard_steps))
+    ) | (
+        env._base_bad_orientation_soft_counter >= int(max(1, soft_steps))
+    )
+
+    if hasattr(env, "extras"):
+        if env.extras is None:
+            env.extras = {}
+        log = env.extras.setdefault("log", {})
+        log["termination/base_bad_orientation_yaw_error_abs_mean"] = abs_yaw_error.mean().detach()
+        log["termination/base_bad_orientation_active_ratio"] = active.float().mean().detach()
+        log["termination/base_bad_orientation_done_ratio"] = done.float().mean().detach()
+    return done
+
+
+def base_fall(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    min_base_height: float = 0.20,
+) -> torch.Tensor:
+    """Terminate immediately when the robot base height drops below threshold."""
+    robot: Articulation = env.scene[robot_cfg.name]
+    done = robot.data.root_pos_w[:, 2] < float(min_base_height)
+    if hasattr(env, "extras"):
+        if env.extras is None:
+            env.extras = {}
+        env.extras.setdefault("log", {})["termination/base_fall_done_ratio"] = done.float().mean().detach()
+    return done
+
+
 # -------------------------
 # Quaternion helpers (wxyz)
 # -------------------------
@@ -192,7 +325,7 @@ def grasp_handle_sustained(
     open_width: float = 0.08,
     min_closedness: float = 0.5,
 ) -> torch.Tensor:
-    """Grasp success termination aligned with current ARX5 rewards/grasp_success gate."""
+    """Grasp success termination aligned with the current rewards/grasp_success gate."""
 
     # ------------------------------------------------------------------
     # 1) sustained filtered contact history

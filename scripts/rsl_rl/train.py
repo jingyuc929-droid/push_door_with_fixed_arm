@@ -94,6 +94,10 @@ from isaaclab.utils.dict import print_dict
 from isaaclab.utils.io import dump_yaml
 
 from isaaclab_rl.rsl_rl import RslRlBaseRunnerCfg, RslRlVecEnvWrapper
+from door_env.tasks.manager_based.door_env.distillation import (
+    DoorBotDistillationVecEnvWrapper,
+    DoorBotTeacherRunner,
+)
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import get_checkpoint_path
@@ -109,34 +113,67 @@ torch.backends.cudnn.allow_tf32 = True
 torch.backends.cudnn.deterministic = False
 torch.backends.cudnn.benchmark = False
 
-
+    # "base_reward/safety_body_door_force_term",
+    # "base_reward/safety_leg_door_force_term",
+    # "base_reward/safety_body_frame_force_term",
+    # "base_reward/safety_leg_frame_force_term",
+    # "base_reward/safety_late_weight_mask",
+    # "base_reward/safety_cmd_rate",
+    # "base_reward/safety_height_pitch_reg",
+    # "base_reward/traverse_mask",
+    # "base_reward/traverse_pass",
+    # "base_reward/traverse_release",
+    # "base_reward/push_follow_mask",
+    # "base_reward/push_follow_door_angle",
+    # "base_reward/push_follow_door_progress",
+    # "base_reward/push_follow_to_doorway",
+    # "base_reward/hold_mask",
+    # "base_reward/hold_cmd_cost",
+    # "base_reward/hold_pos_cost",
+    # "base_reward/hold_yaw_cost",
 _CONSOLE_METRIC_ORDER = (
     "Episode_Reward/stage_gated_door_reward",
     "Episode_Termination/time_out",
-    "Episode_Termination/door_open_success",
-    "Episode_Termination/release_after_grasp_failure",
-    "Episode_Termination/release_after_unlock_failure",
-    "stage_gated_reward/align",
-    "stage_gated_reward/approach",
-    "stage_gated_reward/close_when_ready",
-    "stage_gated_reward/grasp_handle",
-    "stage_gated_reward/grasp_quality_keep",
-    "stage_gated_reward/grasp_quality_penalty",
-    "stage_gated_reward/press_handle_raw",
-    "stage_gated_reward/press_handle_gated",
-    "stage_gated_reward/keep_handle_after_press",
-    "stage_gated_reward/stall_after_grasp",
-    "stage_gated_reward/stall_after_press",
-    "stage_gated_reward/unlock_progress_raw",
-    "stage_gated_reward/unlock_progress_gated",
-    "stage_gated_reward/unlock_transition",
-    "stage_gated_reward/push_door",
+    "Episode_Termination/base_traverse_success",
+    "Episode_Termination/base_bad_orientation",
+    "Episode_Termination/base_fall",
+    "--------------stage 0--------------",
+    "stage_gated_reward/base_to_pick_stance",
+    "stage_gated_reward/ee_to_object",
+    "stage_gated_reward/ee_to_target_shaped",
+    "stage_gated_reward/ee_to_pick_progress",
+    "stage_gated_reward/pick_reached_success",
+    "stage_gated_reward/ee_object_contact",
+    "stage_gated_reward/ee_to_object_shaped",
+    "stage_gated_reward/grasping_success_shaped",
+    "stage_gated_reward/grasp_stable_progress",
     "stage_gated_reward/stage0_reward",
-    "stage_gated_reward/stage1_reward",
-    "stage_gated_reward/stage2_reward",
     "stage_gated_reward/stage0_mask_ratio",
+    "--------------stage 1--------------",
+    "stage_gated_reward/stall_after_grasp",
+    "stage_gated_reward/press_handle",
+    "stage_gated_reward/press_handle_raw",
+    "stage_gated_reward/keep_handle_after_press",
+    "stage_gated_reward/unlock_progress",
+    "stage_gated_reward/stall_after_press",
+    "stage_gated_reward/unlock_transition",
+    "stage_gated_reward/stage1_reward",
     "stage_gated_reward/stage1_mask_ratio",
+    "--------------stage 2--------------",
+    "stage_gated_reward/push_door",
+    "stage_gated_reward/stage2_reward",
     "stage_gated_reward/stage2_mask_ratio",
+    "--------------base--------------",
+    "base_reward/hold",
+    "base_reward/push_follow",
+    "base_reward/traverse",
+    "base_reward/safety",
+    "base_reward/success_done",
+    "base_reward/success_signed_forward",
+    "--------------transition-----------",
+    "transition/physical_unlocked_ratio",
+    "transition/newly_unlocked_ratio",
+    "transition/unlock_bonus_mean",
 )
 _CONSOLE_METRIC_PRIORITY = {name: idx for idx, name in enumerate(_CONSOLE_METRIC_ORDER)}
 
@@ -149,21 +186,40 @@ def _console_metric_name_from_line(line: str) -> str | None:
     return name if "/" in name else None
 
 
+def _is_console_separator(name: str) -> bool:
+    return name.startswith("--------------")
+
+
+_CONSOLE_METRIC_WHITELIST = {
+    name for name in _CONSOLE_METRIC_ORDER if not _is_console_separator(name)
+}
+
+
 def _should_print_console_metric(metric_name: str) -> bool:
-    exact_names = {
-        "Episode_Reward/stage_gated_door_reward",
-    }
-    allowed_prefixes = (
-        "Episode_Termination/",
-        "stage_gated_reward/",
-        "termination/",
-    )
-    return metric_name in exact_names or metric_name.startswith(allowed_prefixes)
+    return metric_name in _CONSOLE_METRIC_WHITELIST
 
 
 def _console_metric_sort_key(item: tuple[str, str]) -> tuple[int, str]:
     name, _line = item
     return (_CONSOLE_METRIC_PRIORITY.get(name, len(_CONSOLE_METRIC_PRIORITY)), name)
+
+
+def _ordered_console_metric_lines(metric_lines: dict[str, str]) -> list[str]:
+    """Order selected metrics and render configured reward-section headers."""
+    output: list[str] = []
+    pending_header: str | None = None
+    for name in _CONSOLE_METRIC_ORDER:
+        if _is_console_separator(name):
+            pending_header = name
+            continue
+        line = metric_lines.get(name)
+        if line is None:
+            continue
+        if pending_header is not None:
+            output.append(pending_header)
+            pending_header = None
+        output.append(line)
+    return output
 
 
 def _filter_console_log_text(text: str, mode: str) -> str:
@@ -189,7 +245,7 @@ def _filter_console_log_text(text: str, mode: str) -> str:
     if mode == "minimal" or len(metric_lines) == 0:
         return "\n".join(kept_lines) + ("\n" if text.endswith("\n") else "")
 
-    ordered_metric_lines = [line for _name, line in sorted(metric_lines.items(), key=_console_metric_sort_key)]
+    ordered_metric_lines = _ordered_console_metric_lines(metric_lines)
     if insert_at is None:
         insert_at = len(kept_lines)
     if insert_at > 0 and kept_lines[insert_at - 1].strip() != "":
@@ -314,6 +370,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # set the log directory for the environment (works for all environment types)
     env_cfg.log_dir = log_dir
+    if hasattr(env_cfg, "viewer") and hasattr(env_cfg, "scene"):
+        viewer_env_index = min(99, max(int(env_cfg.scene.num_envs) - 1, 0))
+        env_cfg.viewer.origin_type = "env"
+        env_cfg.viewer.env_index = viewer_env_index
+        print(f"[INFO] Viewer origin fixed to env{viewer_env_index}.")
 
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
@@ -348,7 +409,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         env = TeleopWrapper(env)
 
     # wrap around environment for rsl-rl
-    env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
+    if agent_cfg.class_name == "DoorBotTeacherRunner":
+        env = DoorBotDistillationVecEnvWrapper(
+            env,
+            clip_actions=agent_cfg.clip_actions,
+            history_length=agent_cfg.history_length,
+            transition_thresholds=agent_cfg.stage_transition_thresholds,
+            collect_distillation_rollout=agent_cfg.collect_distillation_rollout,
+        )
+    else:
+        env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
 
     # ---------------------------------------------------------------------
     # GUI HUD: handle/door joint state + door_unlocked + contact sensor forces
@@ -356,6 +426,246 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # ---------------------------------------------------------------------
     _hud_win, _hud_sub = None, None
     if not args_cli.headless:
+        try:
+            import omni.kit.app
+            import omni.ui as ui
+
+            try:
+                from isaacsim.util.debug_draw import _debug_draw
+
+                draw = _debug_draw.acquire_debug_draw_interface()
+            except Exception:
+                draw = None
+
+            base_env = env.unwrapped
+            door = base_env.scene["door"]
+            robot = base_env.scene["robot"]
+            hook_sensor = base_env.scene["hook_contact"]
+
+            handle_start = 0.0
+            handle_threshold = -0.30
+            handle_target_offset_h = (-0.08, 0.04, 0.01)
+            hook_approach_axis_hand = (0.0, 1.0, 0.0)
+            hook_mouth_axis_hand = (1.0, 0.0, 0.0)
+            handle_approach_axis = 1
+            expected_approach_sign = -1.0
+            approach_weight = 0.70
+            mouth_down_weight = 0.30
+            align_threshold = 0.30
+            contact_threshold = 0.25
+            near_threshold = 0.10
+            hud_env_index = min(276, max(base_env.num_envs - 1, 0))
+
+            def _find_index(names, preferred, fallback_contains):
+                if preferred in names:
+                    return names.index(preferred)
+                matches = [i for i, name in enumerate(names) if fallback_contains in name.lower()]
+                return matches[0] if matches else None
+
+            door_joint_names = list(door.data.joint_names)
+            door_body_names = list(door.data.body_names)
+            robot_body_names = list(robot.data.body_names)
+            handle_jid = _find_index(door_joint_names, "handle_joint", "handle")
+            door_jid = _find_index(door_joint_names, "door_joint", "door")
+            handle_bid = _find_index(door_body_names, "handle_1", "handle")
+            grasp_bid = _find_index(robot_body_names, "gripper_grasp_center", "grasp_center")
+
+            def _quat_conjugate(q: torch.Tensor) -> torch.Tensor:
+                w, x, y, z = q.unbind(-1)
+                return torch.stack((w, -x, -y, -z), dim=-1)
+
+            def _quat_mul(q1: torch.Tensor, q2: torch.Tensor) -> torch.Tensor:
+                w1, x1, y1, z1 = q1.unbind(-1)
+                w2, x2, y2, z2 = q2.unbind(-1)
+                w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
+                x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
+                y = w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2
+                z = w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2
+                return torch.stack((w, x, y, z), dim=-1)
+
+            def _quat_rotate(q: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
+                qv = torch.cat((torch.zeros_like(v[..., :1]), v), dim=-1)
+                return _quat_mul(_quat_mul(q, qv), _quat_conjugate(q))[..., 1:]
+
+            def _safe_unit(v: torch.Tensor, eps: float = 1.0e-8) -> torch.Tensor:
+                return v / torch.clamp(torch.linalg.norm(v, dim=-1, keepdim=True), min=eps)
+
+            def _local_vec_to_world(q: torch.Tensor, local_vec: tuple[float, float, float]) -> torch.Tensor:
+                vec = torch.tensor(local_vec, device=q.device, dtype=q.dtype).view(1, 3).repeat(q.shape[0], 1)
+                return _quat_rotate(q, vec)
+
+            def _handle_axis_world(q: torch.Tensor, axis_idx: int) -> torch.Tensor:
+                vec = torch.zeros((q.shape[0], 3), device=q.device, dtype=q.dtype)
+                vec[:, int(axis_idx)] = 1.0
+                return _quat_rotate(q, vec)
+
+            def _draw_arrow(draw_iface, origin, direction, color, length=0.25, width=4.0):
+                direction = _safe_unit(direction.view(1, 3))[0]
+                start_t = origin
+                end_t = origin + direction * float(length)
+                start = tuple(start_t.detach().tolist())
+                end = tuple(end_t.detach().tolist())
+                draw_iface.draw_lines([start], [end], [color], [float(width)])
+
+                dir_xy = direction[:2]
+                dir_xy_norm = torch.linalg.norm(dir_xy)
+                if float(dir_xy_norm.item()) < 1.0e-6:
+                    return
+                dir_xy = dir_xy / dir_xy_norm
+                left_xy = torch.stack((-dir_xy[1], dir_xy[0]))
+                wing_base_xy = end_t[:2] - 0.22 * float(length) * dir_xy
+                wing_len = 0.12 * float(length)
+                wing_a = torch.stack((wing_base_xy[0] + wing_len * left_xy[0], wing_base_xy[1] + wing_len * left_xy[1], end_t[2]))
+                wing_b = torch.stack((wing_base_xy[0] - wing_len * left_xy[0], wing_base_xy[1] - wing_len * left_xy[1], end_t[2]))
+                draw_iface.draw_lines([end, end], [tuple(wing_a.detach().tolist()), tuple(wing_b.detach().tolist())], [color, color], [float(width), float(width)])
+
+            def _filtered_force_norm(sensor):
+                try:
+                    force_matrix = sensor.data.force_matrix_w
+                    if force_matrix is None or force_matrix.numel() == 0:
+                        return torch.zeros(base_env.num_envs, device=base_env.device)
+                    force_matrix = force_matrix.reshape(force_matrix.shape[0], -1, 3)
+                    return torch.linalg.norm(force_matrix, dim=-1).sum(dim=-1)
+                except Exception:
+                    return torch.zeros(base_env.num_envs, device=base_env.device)
+
+            def _fmt_flag_tensor(name: str):
+                if not hasattr(base_env, name):
+                    return "N/A"
+                try:
+                    return str(bool(getattr(base_env, name)[hud_env_index].item()))
+                except Exception:
+                    return "N/A"
+
+            _hud_win = ui.Window("Piper Hook Train HUD", width=460, height=360)
+            with _hud_win.frame:
+                with ui.VStack(spacing=5):
+                    lbl_env = ui.Label(f"env: {hud_env_index} / {base_env.num_envs}")
+                    lbl_handle = ui.Label("handle: --")
+                    lbl_door = ui.Label("door: --")
+                    lbl_unlock = ui.Label("unlock: --")
+                    lbl_contact = ui.Label("hook_contact: --")
+                    lbl_target = ui.Label("grasp_center -> handle target: --")
+                    lbl_align = ui.Label("hook align score: --")
+                    lbl_align_terms = ui.Label("approach / mouth_down: -- / --")
+                    lbl_stage = ui.Label("stage flags: --")
+                    lbl_arm = ui.Label("arm joints: --")
+
+            hud_dt = 1.0 / 20.0
+            hud_last_t = 0.0
+            handle_denom = handle_threshold - handle_start
+
+            def _on_hook_hud_update(_evt):
+                nonlocal hud_last_t
+                now = time.time()
+                if now - hud_last_t < hud_dt:
+                    return
+                hud_last_t = now
+
+                if base_env.num_envs <= 0 or hud_env_index >= base_env.num_envs:
+                    lbl_env.text = f"env: N/A / {base_env.num_envs}"
+                    return
+
+                try:
+                    hpos = float(door.data.joint_pos[hud_env_index, handle_jid].item()) if handle_jid is not None else float("nan")
+                    hvel = float(door.data.joint_vel[hud_env_index, handle_jid].item()) if handle_jid is not None else float("nan")
+                    progress = 0.0 if abs(handle_denom) < 1.0e-9 else (hpos - handle_start) / handle_denom
+                    progress = max(0.0, min(1.0, progress))
+                    lbl_handle.text = f"handle: pos={hpos:+.4f} vel={hvel:+.4f} progress={progress:.3f}"
+                except Exception as exc:
+                    lbl_handle.text = f"handle: ERR {exc}"
+
+                try:
+                    dpos = float(door.data.joint_pos[hud_env_index, door_jid].item()) if door_jid is not None else float("nan")
+                    dvel = float(door.data.joint_vel[hud_env_index, door_jid].item()) if door_jid is not None else float("nan")
+                    lbl_door.text = f"door: pos={dpos:+.4f} vel={dvel:+.4f}"
+                except Exception as exc:
+                    lbl_door.text = f"door: ERR {exc}"
+
+                try:
+                    by_handle = hpos <= handle_threshold
+                    lbl_unlock.text = (
+                        f"unlock: physical={_fmt_flag_tensor('_door_unlocked')} "
+                        f"success_latch={_fmt_flag_tensor('_unlock_success_given')} by_handle={by_handle}"
+                    )
+                except Exception:
+                    lbl_unlock.text = "unlock: N/A"
+
+                try:
+                    force = _filtered_force_norm(hook_sensor)
+                    f0 = float(force[hud_env_index].item())
+                    lbl_contact.text = f"hook_contact: |F|={f0:.3f} ok={f0 > contact_threshold}"
+                except Exception as exc:
+                    lbl_contact.text = f"hook_contact: ERR {exc}"
+
+                try:
+                    if handle_bid is None or grasp_bid is None:
+                        raise RuntimeError("missing handle_1 or gripper_grasp_center body")
+                    p_grasp = robot.data.body_pos_w[hud_env_index:hud_env_index + 1, grasp_bid, :]
+                    q_grasp = robot.data.body_quat_w[hud_env_index:hud_env_index + 1, grasp_bid, :]
+                    p_handle = door.data.body_pos_w[hud_env_index:hud_env_index + 1, handle_bid, :]
+                    q_handle = door.data.body_quat_w[hud_env_index:hud_env_index + 1, handle_bid, :]
+                    offset = torch.tensor(handle_target_offset_h, device=p_handle.device, dtype=p_handle.dtype).view(1, 3)
+                    p_target = p_handle + _quat_rotate(q_handle, offset)
+                    dist = torch.linalg.norm(p_grasp - p_target, dim=-1)
+                    near_ok = bool((dist[0] < near_threshold).item())
+                    lbl_target.text = f"grasp_center -> handle target: {float(dist[0].item()):.4f} ok={near_ok}"
+                    if draw is not None:
+                        try:
+                            draw.clear_points()
+                            draw.clear_lines()
+                            draw.draw_lines(
+                                [tuple(p_grasp[0].detach().tolist())],
+                                [tuple(p_target[0].detach().tolist())],
+                                [(1.0, 1.0, 1.0, 1.0)],
+                                [4.0],
+                            )
+                        except Exception:
+                            pass
+
+                    hook_approach_w = _safe_unit(_local_vec_to_world(q_grasp, hook_approach_axis_hand))
+                    handle_approach_w = _safe_unit(_handle_axis_world(q_handle, handle_approach_axis))
+                    target_handle_approach_w = expected_approach_sign * handle_approach_w
+                    approach_dot = torch.sum(hook_approach_w * handle_approach_w, dim=-1)
+                    approach_align = (expected_approach_sign * approach_dot).clamp(0.0, 1.0)
+
+                    hook_mouth_w = _safe_unit(_local_vec_to_world(q_grasp, hook_mouth_axis_hand))
+                    world_down = torch.tensor((0.0, 0.0, -1.0), device=p_grasp.device, dtype=p_grasp.dtype).view(1, 3)
+                    world_down_w = _safe_unit(world_down)
+                    mouth_down = torch.sum(hook_mouth_w * world_down_w, dim=-1).clamp(0.0, 1.0)
+                    score = (
+                        approach_weight * approach_align + mouth_down_weight * mouth_down
+                    ) / max(approach_weight + mouth_down_weight, 1.0e-6)
+                    lbl_align.text = f"hook align score: {float(score[0].item()):.3f} ok={float(score[0].item()) >= align_threshold}"
+                    lbl_align_terms.text = (
+                        f"approach / mouth_down: {float(approach_align[0].item()):.3f} / "
+                        f"{float(mouth_down[0].item()):.3f}"
+                    )
+
+                except Exception as exc:
+                    lbl_target.text = f"grasp_center -> handle target: ERR {exc}"
+                    lbl_align.text = "hook align score: N/A"
+                    lbl_align_terms.text = "approach / mouth_down: N/A / N/A"
+
+                lbl_stage.text = (
+                    f"stage flags: grasp={_fmt_flag_tensor('_grasp_success_given')} "
+                    f"unlock={_fmt_flag_tensor('_unlock_success_given')}"
+                )
+                try:
+                    arm_ids = [i for i, name in enumerate(robot.data.joint_names) if name.startswith("link") and name.endswith("_joint")]
+                    arm_q = robot.data.joint_pos[hud_env_index, arm_ids]
+                    lbl_arm.text = "arm joints: " + ", ".join(f"{float(v):+.2f}" for v in arm_q.tolist())
+                except Exception:
+                    lbl_arm.text = "arm joints: N/A"
+
+            _hud_stream = omni.kit.app.get_app().get_update_event_stream()
+            _hud_sub = _hud_stream.create_subscription_to_pop(_on_hook_hud_update)
+        except Exception as exc:
+            print(f"[WARN] Piper hook train HUD disabled: {exc}")
+            _hud_win, _hud_sub = None, None
+
+    # Legacy X5/finger HUD kept for reference, but disabled for the piper-hook asset.
+    if False and not args_cli.headless:
         try:
             import omni.ui as ui
             import omni.kit.app
@@ -1206,7 +1516,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             _hud_win, _hud_sub = None, None
 
    # create runner from rsl-rl
-    if agent_cfg.class_name == "OnPolicyRunner":
+    if agent_cfg.class_name == "DoorBotTeacherRunner":
+        runner = DoorBotTeacherRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
+    elif agent_cfg.class_name == "OnPolicyRunner":
         runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
     elif agent_cfg.class_name == "DistillationRunner":
         runner = DistillationRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)

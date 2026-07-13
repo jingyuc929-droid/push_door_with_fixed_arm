@@ -75,6 +75,50 @@ def _get_single_body_pose_w_with_offset(
     return tcp_pos, tcp_quat
 
 
+def _world_vector_to_base(env: ManagerBasedRLEnv, vector_w: torch.Tensor, robot_cfg: SceneEntityCfg) -> torch.Tensor:
+    robot: Articulation = env.scene[robot_cfg.name]
+    return quat_rotate(quat_conjugate(robot.data.root_quat_w), vector_w)
+
+
+def _handle_target_point_w(
+    env: ManagerBasedRLEnv,
+    handle_cfg: SceneEntityCfg,
+    handle_offset_h=(0.0, 0.0, 0.0),
+) -> torch.Tensor:
+    handle_pos_w, handle_quat_w = _get_single_body_pose_w(env, handle_cfg)
+    offset_h = _expand_vec3(handle_offset_h, handle_pos_w)
+    return handle_pos_w + quat_rotate(handle_quat_w, offset_h)
+
+
+def _doorway_center_w(
+    env: ManagerBasedRLEnv,
+    door_cfg: SceneEntityCfg,
+    doorway_center_xy: tuple[float, float] = (0.0, 0.0),
+    doorway_z: float = 0.0,
+) -> torch.Tensor:
+    door: Articulation = env.scene[door_cfg.name]
+    center_d = torch.tensor(
+        (doorway_center_xy[0], doorway_center_xy[1], doorway_z),
+        dtype=door.data.root_pos_w.dtype,
+        device=door.data.root_pos_w.device,
+    ).view(1, 3).expand(env.num_envs, 3)
+    return door.data.root_pos_w + quat_rotate(door.data.root_quat_w, center_d)
+
+
+def _doorway_forward_w(
+    env: ManagerBasedRLEnv,
+    door_cfg: SceneEntityCfg,
+    doorway_forward_axis: tuple[float, float] = (1.0, 0.0),
+) -> torch.Tensor:
+    door: Articulation = env.scene[door_cfg.name]
+    axis_d = torch.tensor(
+        (doorway_forward_axis[0], doorway_forward_axis[1], 0.0),
+        dtype=door.data.root_pos_w.dtype,
+        device=door.data.root_pos_w.device,
+    ).view(1, 3).expand(env.num_envs, 3)
+    return quat_rotate(door.data.root_quat_w, axis_d)
+
+
 def _contact_force_norm(sensor: ContactSensor) -> torch.Tensor:
     f = sensor.data.net_forces_w
     if f.ndim == 3:  # [N, B, 3]
@@ -83,6 +127,73 @@ def _contact_force_norm(sensor: ContactSensor) -> torch.Tensor:
         return torch.norm(f, dim=-1)
     else:
         raise RuntimeError(f"Unexpected net_forces_w shape: {tuple(f.shape)}")
+
+
+def _filtered_contact_force_norm_from_sensor(env: ManagerBasedRLEnv, sensor_name: str | None) -> torch.Tensor:
+    if not sensor_name:
+        return torch.zeros((env.num_envs,), device=env.device)
+    try:
+        sensor: ContactSensor = env.scene[sensor_name]
+    except Exception:
+        return torch.zeros((env.num_envs,), device=env.device)
+
+    fm = getattr(sensor.data, "force_matrix_w", None)
+    if fm is not None:
+        if fm.ndim == 4:
+            return torch.linalg.norm(fm.sum(dim=2), dim=-1).amax(dim=1)
+        if fm.ndim == 3:
+            return torch.linalg.norm(fm.sum(dim=1), dim=-1)
+        return torch.zeros((env.num_envs,), device=env.device)
+    return _contact_force_norm(sensor)
+
+
+def normalized_contact_force(
+    env: ManagerBasedRLEnv,
+    sensor_name: str,
+    force_ref: float = 50.0,
+) -> torch.Tensor:
+    """Return clamp(filtered_contact_force_norm / force_ref, 0, 1) as [N, 1]."""
+    force = _filtered_contact_force_norm_from_sensor(env, sensor_name)
+    return torch.clamp(force / max(float(force_ref), 1.0e-6), 0.0, 1.0).unsqueeze(-1)
+
+
+def body_door_contact_force_norm(
+    env: ManagerBasedRLEnv,
+    sensor_name: str = "body_door_contact",
+    force_ref: float = 50.0,
+) -> torch.Tensor:
+    return normalized_contact_force(env, sensor_name, force_ref)
+
+
+def leg_door_contact_force_norm(
+    env: ManagerBasedRLEnv,
+    sensor_name: str = "leg_door_contact",
+    force_ref: float = 50.0,
+) -> torch.Tensor:
+    return normalized_contact_force(env, sensor_name, force_ref)
+
+
+def body_door_frame_contact_force_norm(
+    env: ManagerBasedRLEnv,
+    sensor_name: str = "body_door_frame_contact",
+    force_ref: float = 50.0,
+) -> torch.Tensor:
+    return normalized_contact_force(env, sensor_name, force_ref)
+
+
+def leg_door_frame_contact_force_norm(
+    env: ManagerBasedRLEnv,
+    sensor_name: str = "leg_door_frame_contact",
+    force_ref: float = 50.0,
+) -> torch.Tensor:
+    return normalized_contact_force(env, sensor_name, force_ref)
+
+
+def _get_action_history(env: ManagerBasedRLEnv) -> torch.Tensor:
+    action = getattr(env, "high_level_previous_action", None)
+    if action is None:
+        return torch.zeros((env.num_envs, 11), device=env.device)
+    return action
 
 
 # -------------------------
@@ -99,6 +210,162 @@ def ee_tcp_pose_w(
         env, ee_cfg, offset_pos=ee_offset_pos, offset_quat=ee_offset_quat
     )
     return torch.cat((ee_pos, ee_quat), dim=-1)
+
+
+def base_to_doorway_center_b_xy(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    door_cfg: SceneEntityCfg = SceneEntityCfg("door"),
+    doorway_center_xy: tuple[float, float] = (0.0, 0.0),
+    doorway_z: float = 0.0,
+) -> torch.Tensor:
+    """Return doorway-center position relative to base, expressed in base frame XY."""
+    robot: Articulation = env.scene[robot_cfg.name]
+    center_w = _doorway_center_w(env, door_cfg, doorway_center_xy, doorway_z)
+    return _world_vector_to_base(env, center_w - robot.data.root_pos_w, robot_cfg)[:, :2]
+
+
+def last_high_base_action(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Return previous deployable base command [vx, vy, wz]."""
+    command = getattr(env, "high_level_previous_base_command", None)
+    if command is None:
+        return torch.zeros((env.num_envs, 3), device=env.device)
+    return command[:, :3]
+
+
+def last_arm_action(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Return previous high-level arm action only, excluding the 5-D base action prefix."""
+    action = _get_action_history(env)
+    if action.shape[-1] < 11:
+        out = torch.zeros((env.num_envs, 6), device=env.device)
+        available = max(int(action.shape[-1]) - 5, 0)
+        if available > 0:
+            out[:, :available] = action[:, 5:]
+        return out
+    return action[:, 5:11]
+
+
+def high_base_command_3d(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Return current deployable base command [vx, vy, wz]."""
+    command = getattr(env, "high_level_base_command", None)
+    if command is None:
+        return torch.zeros((env.num_envs, 3), device=env.device)
+    return command[:, :3]
+
+
+def base_velocity_b(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Return base velocity [vx_b, vy_b, wx_b, wy_b, wz_b]."""
+    robot: Articulation = env.scene[robot_cfg.name]
+    if hasattr(robot.data, "root_lin_vel_b"):
+        lin_vel_b = robot.data.root_lin_vel_b
+    else:
+        lin_vel_b = quat_rotate(quat_conjugate(robot.data.root_quat_w), robot.data.root_lin_vel_w)
+    if hasattr(robot.data, "root_ang_vel_b"):
+        ang_vel_b = robot.data.root_ang_vel_b
+    else:
+        ang_vel_b = quat_rotate(quat_conjugate(robot.data.root_quat_w), robot.data.root_ang_vel_w)
+    return torch.cat((lin_vel_b[:, :2], ang_vel_b), dim=-1)
+
+
+def projected_gravity_b(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Return gravity direction projected in base frame."""
+    robot: Articulation = env.scene[robot_cfg.name]
+    return robot.data.projected_gravity_b
+
+
+def base_height(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Return base/root height in world z."""
+    robot: Articulation = env.scene[robot_cfg.name]
+    return robot.data.root_pos_w[:, 2:3]
+
+
+def doorway_forward_axis_b_xy(
+    env: ManagerBasedRLEnv,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    door_cfg: SceneEntityCfg = SceneEntityCfg("door"),
+    doorway_forward_axis: tuple[float, float] = (1.0, 0.0),
+    eps: float = 1.0e-6,
+) -> torch.Tensor:
+    """Return door-frame doorway forward axis expressed in base frame XY."""
+    axis_w = _doorway_forward_w(env, door_cfg, doorway_forward_axis)
+    axis_b_xy = _world_vector_to_base(env, axis_w, robot_cfg)[:, :2]
+    return axis_b_xy / (torch.norm(axis_b_xy, dim=-1, keepdim=True) + eps)
+
+
+def door_panel_forward_axis_b_xy(
+    env: ManagerBasedRLEnv,
+    panel_cfg: SceneEntityCfg,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    panel_forward_axis: tuple[float, float, float] = (0.0, -1.0, 0.0),
+    eps: float = 1.0e-6,
+) -> torch.Tensor:
+    """Return the moving door-panel forward axis in robot-base XY coordinates."""
+    _, panel_quat_w = _get_single_body_pose_w(env, panel_cfg)
+    axis_panel = _expand_vec3(panel_forward_axis, panel_quat_w[..., :3])
+    axis_w = quat_rotate(panel_quat_w, axis_panel)
+    axis_b_xy = _world_vector_to_base(env, axis_w, robot_cfg)[:, :2]
+    return axis_b_xy / (torch.norm(axis_b_xy, dim=-1, keepdim=True) + eps)
+
+
+def door_unlock_state(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Physical unlock state as a deployable-independent privileged scalar [N, 1]."""
+    if hasattr(env, "_door_lock_mode"):
+        unlocked = env._door_lock_mode == 2
+    elif hasattr(env, "_door_unlocked"):
+        unlocked = env._door_unlocked.to(dtype=torch.bool)
+    else:
+        unlocked = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    return unlocked.float().unsqueeze(-1)
+
+
+def door_stage_id(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Current gated task stage (0 approach, 1 unlock, 2 push) as [N, 1]."""
+    grasped = getattr(env, "_grasp_success_given", torch.zeros(env.num_envs, dtype=torch.bool, device=env.device))
+    unlocked = door_unlock_state(env).squeeze(-1).to(dtype=torch.bool)
+    stage = torch.zeros(env.num_envs, dtype=torch.float32, device=env.device)
+    stage = torch.where(grasped.to(dtype=torch.bool) & (~unlocked), torch.ones_like(stage), stage)
+    stage = torch.where(unlocked, torch.full_like(stage, 2.0), stage)
+    return stage.unsqueeze(-1)
+
+
+def handle_target_point_b(
+    env: ManagerBasedRLEnv,
+    handle_cfg: SceneEntityCfg,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    handle_offset_h=(0.0, 0.0, 0.0),
+) -> torch.Tensor:
+    """Return handle target point position relative to base, expressed in base frame."""
+    robot: Articulation = env.scene[robot_cfg.name]
+    target_w = _handle_target_point_w(env, handle_cfg, handle_offset_h)
+    return _world_vector_to_base(env, target_w - robot.data.root_pos_w, robot_cfg)
+
+
+def ee_to_handle_target_b(
+    env: ManagerBasedRLEnv,
+    ee_cfg: SceneEntityCfg,
+    handle_cfg: SceneEntityCfg,
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    handle_offset_h=(0.0, 0.0, 0.0),
+    ee_offset_pos=(0.0, 0.0, 0.0),
+    ee_offset_quat=(1.0, 0.0, 0.0, 0.0),
+) -> torch.Tensor:
+    """Return vector from EE to handle target point, expressed in base frame."""
+    target_b = handle_target_point_b(env, handle_cfg, robot_cfg, handle_offset_h)
+    robot: Articulation = env.scene[robot_cfg.name]
+    ee_pos_w, _ = _get_single_body_pose_w_with_offset(
+        env, ee_cfg, offset_pos=ee_offset_pos, offset_quat=ee_offset_quat
+    )
+    ee_b = _world_vector_to_base(env, ee_pos_w - robot.data.root_pos_w, robot_cfg)
+    return target_b - ee_b
 
 
 def ee_pos_in_handle_frame(
@@ -153,7 +420,7 @@ def gripper_opening(
     robot_cfg: SceneEntityCfg,
     joint_name: str = "gripper_joint",
 ) -> torch.Tensor:
-    """Return ARX5 gripper opening proxy [N,1] from active joint only."""
+    """Return the configured gripper opening proxy [N,1] from active joint only."""
     robot: Articulation = env.scene[robot_cfg.name]
     jnames = robot.data.joint_names
     jid = jnames.index(joint_name)
@@ -165,7 +432,7 @@ def gripper_width(
     robot_cfg: SceneEntityCfg,
     finger_joint_names=("gripper_joint", "joint8"),
 ) -> torch.Tensor:
-    """Optional generic width proxy. For ARX5, prefer gripper_opening() in training."""
+    """Optional generic width proxy for robots with finger joints."""
     robot: Articulation = env.scene[robot_cfg.name]
     jnames = robot.data.joint_names
     joint_ids = [jnames.index(name) for name in finger_joint_names if name in jnames]
@@ -183,8 +450,8 @@ def last_action(
     """Return previous policy action commands concatenated as [N, action_dim].
 
     This intentionally uses raw/processed policy commands rather than
-    stage-scaled applied joint deltas. Use last_applied_arm_delta() for the
-    actual MIT arm target increment applied after action scaling.
+    stage-scaled applied target increments. Use last_applied_arm_delta() for
+    the actual arm position-target increment applied after action scaling.
     """
     action_terms = []
     action_manager = getattr(env, "action_manager", None)
@@ -247,9 +514,7 @@ def last_applied_arm_delta(
     env: ManagerBasedRLEnv,
     action_name: str = "arm_action",
 ) -> torch.Tensor:
-    """Return actual previous arm q_des increment after clamp, delta_scale,
-    and stage-aware scaling. Shape: [N, 6], unit: rad/control-step.
-    """
+    """Return previous arm position-target increment after clamp and stage scaling."""
     term = _get_action_term(env, action_name)
     if term is None or not hasattr(term, "applied_delta"):
         return torch.zeros((env.num_envs, 6), device=env.device)
@@ -269,7 +534,7 @@ def arm_q_des_error(
     env: ManagerBasedRLEnv,
     action_name: str = "arm_action",
 ) -> torch.Tensor:
-    """Return MIT arm target tracking error q_des - q.
+    """Return arm position-target tracking error q_des - q.
 
     Shape: [N, 6]. This is deployable low-level controller state.
     """

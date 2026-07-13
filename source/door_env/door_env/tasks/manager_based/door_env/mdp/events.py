@@ -211,3 +211,74 @@ def update_door_lock_hysteresis_delayed_release(
     env.extras["log"]["door_lock/handle_pos_mean"] = handle_pos.mean().detach()
     env.extras["log"]["door_lock/handle_pos_min"] = handle_pos.min().detach()
     env.extras["log"]["door_lock/relock_ok_ratio"] = relock_ok.float().mean().detach()
+
+
+def visualize_doorway_debug(
+    env,
+    env_ids,
+    doorway_center_xy: tuple[float, float] = (0.0, 0.0),
+    doorway_forward_axis: tuple[float, float] = (1.0, 0.0),
+    z: float = 0.05,
+    arrow_length: float = 0.5,
+    point_size: float = 18.0,
+    line_width: float = 5.0,
+):
+    """Draw doorway center and forward axis in GUI for quick reward-frame inspection."""
+    try:
+        from isaacsim.util.debug_draw import _debug_draw
+    except Exception:
+        return
+
+    draw = _debug_draw.acquire_debug_draw_interface()
+    if not hasattr(env, "_doorway_debug_draw_initialized"):
+        env._doorway_debug_draw_initialized = True
+        env._doorway_debug_draw_counter = 0
+
+    # Keep this overlay tidy when running zero_agent for a long time.
+    try:
+        draw.clear_points()
+        draw.clear_lines()
+    except Exception:
+        pass
+
+    device = env.device
+    dtype = torch.float32
+    center_xy = torch.tensor(doorway_center_xy, device=device, dtype=dtype)
+    forward_xy = torch.tensor(doorway_forward_axis, device=device, dtype=dtype)
+    forward_xy = forward_xy / torch.clamp(torch.linalg.norm(forward_xy), min=1.0e-6)
+
+    center = (float(center_xy[0]), float(center_xy[1]), float(z))
+    end_xy = center_xy + float(arrow_length) * forward_xy
+    end = (float(end_xy[0]), float(end_xy[1]), float(z))
+
+    # Red point: doorway center. Blue line + two small wings: forward direction.
+    draw.draw_points([center], [(1.0, 0.0, 0.0, 1.0)], [float(point_size)])
+    starts = [center]
+    ends = [end]
+    colors = [(0.0, 0.25, 1.0, 1.0)]
+    widths = [float(line_width)]
+
+    left = torch.tensor([-forward_xy[1], forward_xy[0]], device=device, dtype=dtype)
+    wing_len = 0.18 * float(arrow_length)
+    wing_back = 0.25 * float(arrow_length)
+    wing_base = end_xy - wing_back * forward_xy
+    wing_a = wing_base + wing_len * left
+    wing_b = wing_base - wing_len * left
+    starts.extend([end, end])
+    ends.extend(
+        [
+            (float(wing_a[0]), float(wing_a[1]), float(z)),
+            (float(wing_b[0]), float(wing_b[1]), float(z)),
+        ]
+    )
+    colors.extend([(0.0, 0.25, 1.0, 1.0), (0.0, 0.25, 1.0, 1.0)])
+    widths.extend([float(line_width), float(line_width)])
+    draw.draw_lines(starts, ends, colors, widths)
+
+    env._doorway_debug_draw_counter += 1
+    if not hasattr(env, "extras") or env.extras is None:
+        env.extras = {}
+    if "log" not in env.extras:
+        env.extras["log"] = {}
+    env.extras["log"]["doorway_debug/center_x"] = center_xy[0].detach()
+    env.extras["log"]["doorway_debug/center_y"] = center_xy[1].detach()

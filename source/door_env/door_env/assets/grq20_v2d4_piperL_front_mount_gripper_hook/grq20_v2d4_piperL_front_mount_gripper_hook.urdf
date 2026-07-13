@@ -1,0 +1,1100 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="grq20_v2d4_piperL_front_mount">
+  <link name="base_link">
+    <inertial>
+      <origin xyz="-0.004929 -0.006432 0.000388" rpy="0 0 0" />
+      <mass value="25.6926" />
+      <inertia ixx="0.16935" iyy="0.923633366" izz="0.98656309" ixy="5.869e-05" ixz="0.00867383" iyz="-6.856e-05" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/meshes_simplify/TRUNK.STL" scale="1 1 1" />
+      </geometry>
+      <material name="">
+        <color rgba="0.8 0.4 0 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.01" rpy="0 0 0" />
+      <geometry>
+        <box size="0.42 0.26 0.18" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.34 0 0.01" rpy="0 0 0" />
+      <geometry>
+        <box size="0.26 0.16 0.14" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="-0.34 0 0.01" rpy="0 0 0" />
+      <geometry>
+        <box size="0.26 0.16 0.14" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.27 0 0.1" rpy="0 0 0" />
+      <geometry>
+        <box size="0.06 0.16 0.05" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="-0.2 0 0.1" rpy="0 0 0" />
+      <geometry>
+        <box size="0.18 0.16 0.05" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="airy_front">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.02" />
+      </geometry>
+    </visual>
+  </link>
+  <joint name="airy_front_joint" type="fixed" dont_collapse="true">
+    <origin xyz="0.37222 0.0 0.00959" rpy="0 1.5707963 0" />
+    <parent link="base_link" />
+    <child link="airy_front" />
+  </joint>
+  <link name="camera_front">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.02" />
+      </geometry>
+    </visual>
+  </link>
+  <joint name="camera_front_joint" type="fixed" dont_collapse="false">
+    <origin xyz="0.4 0.0 0.08" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="camera_front" />
+  </joint>
+  <link name="airy_back">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.02" />
+      </geometry>
+    </visual>
+  </link>
+  <joint name="airy_back_joint" type="fixed" dont_collapse="true">
+    <origin xyz="-0.37230 0.0 0.00959" rpy="0 1.5707963 3.1415926" />
+    <parent link="base_link" />
+    <child link="airy_back" />
+  </joint>
+  <link name="FL_hip">
+    <inertial>
+      <origin xyz="-0.00414483 -0.02428541 -0.00047429" rpy="0 0 0" />
+      <mass value="1.94175758" />
+      <inertia ixx="0.0021062" iyy="0.0036609" izz="0.00248649" ixy="-7.994e-05" ixz="4.41e-06" iyz="-4.4e-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/meshes_simplify/FL_HIP.STL" scale="1 1 1" />
+      </geometry>
+      <material name="">
+        <color rgba="1 0.4 0.4 1" />
+      </material>
+    </visual>
+  </link>
+  <joint name="FL_hip_joint" type="revolute">
+    <origin xyz="0.2987 0.06 0" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="FL_hip" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0.741764919444444" upper="0.741764919444444" effort="150" velocity="20.94" />
+  </joint>
+  <link name="FL_thigh">
+    <inertial>
+      <origin xyz="-0.00656356 -0.02752354 -0.03754152" rpy="0 0 0" />
+      <mass value="3.70524072" />
+      <inertia ixx="0.02670343" iyy="0.02649136" izz="0.0068689" ixy="0.00062533" ixz="-0.00208327" iyz="0.00371242" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/meshes_simplify/FL_THIGH.STL" scale="1 1 1" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 0.4 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 -0.04 0" rpy="1.57 1.57 0" />
+      <geometry>
+        <cylinder radius="0.065" length="0.12" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="-0.03158 0 -0.09691" rpy="0 0.3 0" />
+      <geometry>
+        <box size="0.06368 0.046 0.19764" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="-0.025 0 -0.23181" rpy="0 -0.5 0" />
+      <geometry>
+        <box size="0.05 0.046 0.13" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="FL_thigh_joint" type="revolute">
+    <origin xyz="0 0.1361 0" rpy="0 0 0" />
+    <parent link="FL_hip" />
+    <child link="FL_thigh" />
+    <axis xyz="0 1 0" />
+    <limit lower="-1.221730456" upper="3.839724289" effort="150" velocity="20.94" />
+  </joint>
+  <link name="FL_calf">
+    <inertial>
+      <origin xyz="0.01721758 0.00046932 -0.13605748" rpy="0 0 0" />
+      <mass value="0.36964069" />
+      <inertia ixx="0.00452796" iyy="0.00466323" izz="0.00021316" ixy="2.24e-06" ixz="5.207e-05" iyz="2.151e-05" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/meshes_simplify/FL_CALF.STL" scale="1 1 1" />
+      </geometry>
+      <material name="">
+        <color rgba="0.4 1 0.4 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.025 0 -0.06536" rpy="0 -0.3 0" />
+      <geometry>
+        <box size="0.033 0.033 0.16" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.028 0 -0.20" rpy="0 0.28 0" />
+      <geometry>
+        <box size="0.036 0.036 0.16" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="FL_calf_joint" type="revolute">
+    <origin xyz="0 0 -0.28" rpy="0 0 0" />
+    <parent link="FL_thigh" />
+    <child link="FL_calf" />
+    <axis xyz="0 1 0" />
+    <limit lower="-2.754164416" upper="-1.035626001" effort="150" velocity="20.94" />
+  </joint>
+  <link name="FL_foot">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="0.02" />
+      <inertia ixx="1.09600066619755e-09" iyy="1.09600066619755e-09" izz="1.09600066619755e-09" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.026" />
+      </geometry>
+      <material name="">
+        <color rgba="0 0.5 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.026" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="FL_foot_joint" type="fixed" dont_collapse="true">
+    <origin xyz="0 0 -0.28" rpy="1.57 0 0" />
+    <parent link="FL_calf" />
+    <child link="FL_foot" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="RL_hip">
+    <inertial>
+      <origin xyz="-0.00414483 -0.02428541 -0.00047429" rpy="0 0 0" />
+      <mass value="1.94175758" />
+      <inertia ixx="0.0021062" iyy="0.0036609" izz="0.00248649" ixy="-7.994e-05" ixz="4.41e-06" iyz="-4.4e-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/meshes_simplify/RL_HIP.STL" scale="1 1 1" />
+      </geometry>
+      <material name="">
+        <color rgba="0.8 1.0 0.8 1" />
+      </material>
+    </visual>
+  </link>
+  <joint name="RL_hip_joint" type="revolute">
+    <origin xyz="-0.2987 0.06 0" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="RL_hip" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0.741764919444444" upper="0.741764919444444" effort="150" velocity="20.94" />
+  </joint>
+  <link name="RL_thigh">
+    <inertial>
+      <origin xyz="-0.00656356 -0.02752354 -0.03754152" rpy="0 0 0" />
+      <mass value="3.70524072" />
+      <inertia ixx="0.02670343" iyy="0.02649136" izz="0.0068689" ixy="0.00062533" ixz="-0.00208327" iyz="0.00371242" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/meshes_simplify/FL_THIGH.STL" scale="1 1 1" />
+      </geometry>
+      <material name="">
+        <color rgba="1 0.5 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 -0.04 0" rpy="1.57 1.57 0" />
+      <geometry>
+        <cylinder radius="0.065" length="0.12" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="-0.03158 0 -0.09691" rpy="0 0.3 0" />
+      <geometry>
+        <box size="0.06368 0.046 0.19764" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="-0.025 0 -0.23181" rpy="0 -0.5 0" />
+      <geometry>
+        <box size="0.05 0.046 0.13" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="RL_thigh_joint" type="revolute">
+    <origin xyz="0 0.1361 0" rpy="0 0 0" />
+    <parent link="RL_hip" />
+    <child link="RL_thigh" />
+    <axis xyz="0 1 0" />
+    <limit lower="-1.221730456" upper="3.839724289" effort="150" velocity="20.94" />
+  </joint>
+  <link name="RL_calf">
+    <inertial>
+      <origin xyz="0.01721758 0.00046932 -0.13605748" rpy="0 0 0" />
+      <mass value="0.36964069" />
+      <inertia ixx="0.00452796" iyy="0.00466323" izz="0.00021316" ixy="2.24e-06" ixz="5.207e-05" iyz="2.151e-05" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/meshes_simplify/FL_CALF.STL" scale="1 1 1" />
+      </geometry>
+      <material name="">
+        <color rgba="1 0.4 0.4 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.025 0 -0.06536" rpy="0 -0.3 0" />
+      <geometry>
+        <box size="0.033 0.033 0.16" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.028 0 -0.20" rpy="0 0.28 0" />
+      <geometry>
+        <box size="0.036 0.036 0.16" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="RL_calf_joint" type="revolute">
+    <origin xyz="0 0 -0.28" rpy="0 0 0" />
+    <parent link="RL_thigh" />
+    <child link="RL_calf" />
+    <axis xyz="0 1 0" />
+    <limit lower="-2.754164416" upper="-1.035626001" effort="150" velocity="20.94" />
+  </joint>
+  <link name="RL_foot">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="0.02" />
+      <inertia ixx="1.09600066619755e-09" iyy="1.09600066619755e-09" izz="1.09600066619755e-09" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.026" />
+      </geometry>
+      <material name="">
+        <color rgba="0 0.5 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.026" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="RL_foot_joint" type="fixed">
+    <origin xyz="0 0 -0.28" rpy="1.57 0 0" />
+    <parent link="RL_calf" />
+    <child link="RL_foot" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="FR_hip">
+    <inertial>
+      <origin xyz="-0.00414483 0.02428541 -0.00047429" rpy="0 0 0" />
+      <mass value="1.94175758" />
+      <inertia ixx="0.0021062" iyy="0.0036609" izz="0.00248649" ixy="7.994e-05" ixz="4.41e-06" iyz="4.4e-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/meshes_simplify/FL_HIP.STL" scale="1.0 -1.0 1.0" />
+      </geometry>
+      <material name="">
+        <color rgba="1 0.4 0.4 1" />
+      </material>
+    </visual>
+  </link>
+  <joint name="FR_hip_joint" type="revolute">
+    <origin xyz="0.2987 -0.06 0.0" rpy="-0.0 0.0 -0.0" />
+    <parent link="base_link" />
+    <child link="FR_hip" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0.741764919444444" upper="0.741764919444444" effort="150" velocity="20.94" />
+  </joint>
+  <link name="FR_thigh">
+    <inertial>
+      <origin xyz="-0.00656356 0.02752354 -0.03754152" rpy="0 0 0" />
+      <mass value="3.70524072" />
+      <inertia ixx="0.02670343" iyy="0.02649136" izz="0.0068689" ixy="-0.00062533" ixz="-0.00208327" iyz="-0.00371242" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/meshes_simplify/FL_THIGH.STL" scale="1.0 -1.0 1.0" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 0.4 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0.04 0" rpy="1.57 1.57 0" />
+      <geometry>
+        <cylinder radius="0.065" length="0.12" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="-0.03158 0 -0.09691" rpy="0 0.3 0" />
+      <geometry>
+        <box size="0.06368 0.046 0.19764" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="-0.025 0 -0.23181" rpy="0 -0.5 0" />
+      <geometry>
+        <box size="0.05 0.046 0.13" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="FR_thigh_joint" type="revolute">
+    <origin xyz="0.0 -0.1361 0.0" rpy="-0.0 0.0 -0.0" />
+    <parent link="FR_hip" />
+    <child link="FR_thigh" />
+    <axis xyz="0 1 0" />
+    <limit lower="-1.221730456" upper="3.839724289" effort="150" velocity="20.94" />
+  </joint>
+  <link name="FR_calf">
+    <inertial>
+      <origin xyz="0.01721758 -0.00046932 -0.13605748" rpy="0 0 0" />
+      <mass value="0.36964069" />
+      <inertia ixx="0.00452796" iyy="0.00466323" izz="0.00021316" ixy="-2.24e-06" ixz="5.207e-05" iyz="-2.151e-05" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/meshes_simplify/FL_CALF.STL" scale="1.0 -1.0 1.0" />
+      </geometry>
+      <material name="">
+        <color rgba="0.4 1 0.4 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.025 0 -0.06536" rpy="0 -0.3 0" />
+      <geometry>
+        <box size="0.033 0.033 0.16" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.028 0 -0.20" rpy="0 0.28 0" />
+      <geometry>
+        <box size="0.036 0.036 0.16" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="FR_calf_joint" type="revolute">
+    <origin xyz="0.0 -0.0 -0.28" rpy="-0.0 0.0 -0.0" />
+    <parent link="FR_thigh" />
+    <child link="FR_calf" />
+    <axis xyz="0 1 0" />
+    <limit lower="-2.754164416" upper="-1.035626001" effort="150" velocity="20.94" />
+  </joint>
+  <link name="FR_foot">
+    <inertial>
+      <origin xyz="0.0 -0.0 0.0" rpy="0 0 0" />
+      <mass value="0.02" />
+      <inertia ixx="1.09600066619755e-09" iyy="1.09600066619755e-09" izz="1.09600066619755e-09" ixy="-0.0" ixz="0.0" iyz="-0.0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.026" />
+      </geometry>
+      <material name="">
+        <color rgba="0 0.5 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.026" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="FR_foot_joint" type="fixed" dont_collapse="true">
+    <origin xyz="0.0 -0.0 -0.28" rpy="-1.57 0.0 -0.0" />
+    <parent link="FR_calf" />
+    <child link="FR_foot" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <link name="RR_hip">
+    <inertial>
+      <origin xyz="-0.00414483 0.02428541 -0.00047429" rpy="0 0 0" />
+      <mass value="1.94175758" />
+      <inertia ixx="0.0021062" iyy="0.0036609" izz="0.00248649" ixy="7.994e-05" ixz="4.41e-06" iyz="4.4e-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/meshes_simplify/RL_HIP.STL" scale="1.0 -1.0 1.0" />
+      </geometry>
+      <material name="">
+        <color rgba="0.8 1.0 0.8 1" />
+      </material>
+    </visual>
+  </link>
+  <joint name="RR_hip_joint" type="revolute">
+    <origin xyz="-0.2987 -0.06 0.0" rpy="-0.0 0.0 -0.0" />
+    <parent link="base_link" />
+    <child link="RR_hip" />
+    <axis xyz="1 0 0" />
+    <limit lower="-0.741764919444444" upper="0.741764919444444" effort="150" velocity="20.94" />
+  </joint>
+  <link name="RR_thigh">
+    <inertial>
+      <origin xyz="-0.00656356 0.02752354 -0.03754152" rpy="0 0 0" />
+      <mass value="3.70524072" />
+      <inertia ixx="0.02670343" iyy="0.02649136" izz="0.0068689" ixy="-0.00062533" ixz="-0.00208327" iyz="-0.00371242" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/meshes_simplify/FL_THIGH.STL" scale="1.0 -1.0 1.0" />
+      </geometry>
+      <material name="">
+        <color rgba="1 0.5 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0.04 0" rpy="1.57 1.57 0" />
+      <geometry>
+        <cylinder radius="0.065" length="0.12" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="-0.03158 0 -0.09691" rpy="0 0.3 0" />
+      <geometry>
+        <box size="0.06368 0.046 0.19764" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="-0.025 0 -0.23181" rpy="0 -0.5 0" />
+      <geometry>
+        <box size="0.05 0.046 0.13" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="RR_thigh_joint" type="revolute">
+    <origin xyz="0.0 -0.1361 0.0" rpy="-0.0 0.0 -0.0" />
+    <parent link="RR_hip" />
+    <child link="RR_thigh" />
+    <axis xyz="0 1 0" />
+    <limit lower="-1.221730456" upper="3.839724289" effort="150" velocity="20.94" />
+  </joint>
+  <link name="RR_calf">
+    <inertial>
+      <origin xyz="0.01721758 -0.00046932 -0.13605748" rpy="0 0 0" />
+      <mass value="0.36964069" />
+      <inertia ixx="0.00452796" iyy="0.00466323" izz="0.00021316" ixy="-2.24e-06" ixz="5.207e-05" iyz="-2.151e-05" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/meshes_simplify/FL_CALF.STL" scale="1.0 -1.0 1.0" />
+      </geometry>
+      <material name="">
+        <color rgba="1 0.4 0.4 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0.025 0 -0.06536" rpy="0 -0.3 0" />
+      <geometry>
+        <box size="0.033 0.033 0.16" />
+      </geometry>
+    </collision>
+    <collision>
+      <origin xyz="0.028 0 -0.20" rpy="0 0.28 0" />
+      <geometry>
+        <box size="0.036 0.036 0.16" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="RR_calf_joint" type="revolute">
+    <origin xyz="0.0 -0.0 -0.28" rpy="-0.0 0.0 -0.0" />
+    <parent link="RR_thigh" />
+    <child link="RR_calf" />
+    <axis xyz="0 1 0" />
+    <limit lower="-2.754164416" upper="-1.035626001" effort="150" velocity="20.94" />
+  </joint>
+  <link name="RR_foot">
+    <inertial>
+      <origin xyz="0.0 -0.0 0.0" rpy="0 0 0" />
+      <mass value="0.02" />
+      <inertia ixx="1.09600066619755e-09" iyy="1.09600066619755e-09" izz="1.09600066619755e-09" ixy="-0.0" ixz="0.0" iyz="-0.0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.026" />
+      </geometry>
+      <material name="">
+        <color rgba="0 0.5 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.026" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="RR_foot_joint" type="fixed" dont_collapse="true">
+    <origin xyz="0.0 -0.0 -0.28" rpy="-1.57 0.0 -0.0" />
+    <parent link="RR_calf" />
+    <child link="RR_foot" />
+    <axis xyz="0 1 0" />
+    <limit lower="0" upper="0" effort="0" velocity="0" />
+  </joint>
+  <joint name="piperL_mount_joint" type="fixed">
+    <origin xyz="0.19 0 0.088" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="piperL_base_link" />
+  </joint>
+  <link name="piperL_base_link">
+    <inertial>
+      <origin xyz="-0.00473641164191482 2.56829134630247E-05 0.041451518036016" rpy="0 0 0" />
+      <mass value="1.02" />
+      <inertia ixx="0.00267433" ixy="-0.00000073" ixz="-0.00017389" iyy="0.00282612" iyz="0.0000004" izz="0.00089624" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/piper_l/dae/base_link.dae" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/piper_l/base_link.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="link1">
+    <inertial>
+      <origin xyz="0.00032 -0.00041 -0.00348" rpy="0 0 0" />
+      <mass value="0.71" />
+      <inertia ixx="0.00050027" ixy="0.00000078" ixz="0.00000626" iyy="0.00040879" iyz="0.00000462" izz="0.00045802" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/piper_l/dae/link1.dae" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/piper_l/link1.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="link1_joint" type="revolute">
+    <origin xyz="0 0 0.123" rpy="0 0 0" />
+    <parent link="piperL_base_link" />
+    <child link="link1" />
+    <axis xyz="0 0 1" />
+    <limit lower="-2.6179938" upper="2.6179938" effort="100" velocity="5" />
+  </joint>
+  <link name="link2">
+    <inertial>
+      <origin xyz="0.25852 -0.00861 0.00126" rpy="0 0 0" />
+      <mass value="1.16" />
+      <inertia ixx="0.00111915" ixy="0.00182916" ixz="0.00019233" iyy="0.06763251" iyz="0.00000767" izz="0.067559" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/piper_l/dae/link2.dae" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/piper_l/link2.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="link2_joint" type="revolute">
+    <origin xyz="0 0 0" rpy="1.5707963 -0.1357866 -3.1415926" />
+    <parent link="link1" />
+    <child link="link2" />
+    <axis xyz="0 0 1" />
+    <limit lower="0" upper="3.1415926" effort="100" velocity="5" />
+  </joint>
+  <link name="link3">
+    <inertial>
+      <origin xyz="-0.01999 -0.20808 -0.00053" rpy="0 0 0" />
+      <mass value="0.5" />
+      <inertia ixx="0.01347608" ixy="0.00161034" ixz="0.00000066" iyy="0.00046377" iyz="0.00000162" izz="0.01363321" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/piper_l/dae/link3.dae" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/piper_l/link3.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="link3_joint" type="revolute">
+    <origin xyz="0.33823 0 0" rpy="0 0 -1.7938494" />
+    <parent link="link2" />
+    <child link="link3" />
+    <axis xyz="0 0 1" />
+    <limit lower="-2.9670597" upper="0" effort="100" velocity="5" />
+  </joint>
+  <link name="link4">
+    <inertial>
+      <origin xyz="0.00013 -0.00076 -0.00394" rpy="0 0 0" />
+      <mass value="0.38" />
+      <inertia ixx="0.00017844" ixy="0.00000062" ixz="0.00000067" iyy="0.00018914" iyz="0.00000408" izz="0.00014613" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/piper_l/dae/link4.dae" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/piper_l/link4.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="link4_joint" type="revolute">
+    <origin xyz="-0.02301 -0.32075 0" rpy="1.5707963 0 0" />
+    <parent link="link3" />
+    <child link="link4" />
+    <axis xyz="0 0 1" />
+    <limit lower="-2.2165681" upper="2.2165681" effort="100" velocity="5" />
+  </joint>
+  <link name="link5">
+    <inertial>
+      <origin xyz="0.00018 -0.06104 -0.00227" rpy="0 0 0" />
+      <mass value="0.39" />
+      <inertia ixx="0.00172318" ixy="0.00000259" ixz="0.00000010" iyy="0.00017936" iyz="0.00000990" izz="0.00171172" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/piper_l/dae/link5.dae" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/piper_l/link5.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="link5_joint" type="revolute">
+    <origin xyz="0 0 0" rpy="-1.5707963 0 0" />
+    <parent link="link4" />
+    <child link="link5" />
+    <axis xyz="0 0 1" />
+    <limit lower="-1.5620696" upper="1.5620696" effort="100" velocity="5" />
+  </joint>
+  <link name="link6">
+    <inertial>
+      <origin xyz="-0.00003 0.00006 -0.002" rpy="0 0 0" />
+      <mass value="0.007" />
+      <inertia ixx="0.00152112" ixy="0.00000202" ixz="0.00000261" iyy="0.00138626" iyz="0.00000002" izz="0.00031152" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/piper_l/dae/link6.dae" />
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="./meshes/piper_l/link6.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="link6_joint" type="revolute">
+    <origin xyz="0 -0.091 0" rpy="1.5707963 0 0" />
+    <parent link="link5" />
+    <child link="link6" />
+    <axis xyz="0 0 1" />
+    <limit lower="-2.0943951" upper="2.0943951" effort="100" velocity="5" />
+    <dynamics damping="2.5" friction="0.02" />
+  </joint>
+  <!--Fixed ABS hook gripper generated from SolidWorks assembly STL. Keep the Piper link6 joint untouched; CAD mesh offsets are handled inside this tool link.-->
+  <joint name="link6_to_gripper_hook" type="fixed" dont_collapse="true">
+    <origin xyz="0 0 0" rpy="1.5707963268 0.0000000000 0.0000000000" />
+    <parent link="link6" />
+    <child link="gripper_hook" />
+  </joint>
+  <link name="gripper_hook">
+    <inertial>
+      <origin xyz="0.00244764 0.03660633 -0.00005179" rpy="0 0 0" />
+      <mass value="0.80225" />
+      <inertia ixx="0.00095" ixy="0" ixz="0" iyy="0.00100" iyz="0" izz="0.00115" />
+    </inertial>
+    <visual>
+      <origin xyz="-0.05092357 0 0.02525000" rpy="0 1.5707963 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/base.STL" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="">
+        <color rgba="0.9 0.9 0.85 1" />
+      </material>
+    </visual>
+    <visual>
+      <origin xyz="0.05197534 0 -0.02535000" rpy="0 -1.5707963268 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/hook.STL" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="">
+        <color rgba="0.75 0.75 0.72 1" />
+      </material>
+    </visual>
+    <visual name="gripper_hook_axis_x">
+      <origin xyz="0.025 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.05 0.004 0.004" />
+      </geometry>
+      <material name="gripper_axis_x">
+        <color rgba="1 0 0 1" />
+      </material>
+    </visual>
+    <visual name="gripper_hook_axis_y">
+      <origin xyz="0 0.025 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.004 0.05 0.004" />
+      </geometry>
+      <material name="gripper_axis_y">
+        <color rgba="0 0.85 0 1" />
+      </material>
+    </visual>
+    <visual name="gripper_hook_axis_z">
+      <origin xyz="0 0 0.025" rpy="0 0 0" />
+      <geometry>
+        <box size="0.004 0.004 0.05" />
+      </geometry>
+      <material name="gripper_axis_z">
+        <color rgba="0.1 0.35 1 1" />
+      </material>
+    </visual>
+    <!-- CoACD convex decomposition collision meshes for the hook gripper. -->
+    <collision name="gripper_base_col_00">
+      <origin xyz="-0.05092357 0 0.02525000" rpy="0 1.5707963 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/base_col_00.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_base_col_01">
+      <origin xyz="-0.05092357 0 0.02525000" rpy="0 1.5707963 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/base_col_01.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_base_col_02">
+      <origin xyz="-0.05092357 0 0.02525000" rpy="0 1.5707963 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/base_col_02.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_base_col_03">
+      <origin xyz="-0.05092357 0 0.02525000" rpy="0 1.5707963 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/base_col_03.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_base_col_04">
+      <origin xyz="-0.05092357 0 0.02525000" rpy="0 1.5707963 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/base_col_04.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_base_col_05">
+      <origin xyz="-0.05092357 0 0.02525000" rpy="0 1.5707963 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/base_col_05.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_base_col_06">
+      <origin xyz="-0.05092357 0 0.02525000" rpy="0 1.5707963 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/base_col_06.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_base_col_07">
+      <origin xyz="-0.05092357 0 0.02525000" rpy="0 1.5707963 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/base_col_07.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_base_col_08">
+      <origin xyz="-0.05092357 0 0.02525000" rpy="0 1.5707963 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/base_col_08.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_base_col_09">
+      <origin xyz="-0.05092357 0 0.02525000" rpy="0 1.5707963 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/base_col_09.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_base_col_10">
+      <origin xyz="-0.05092357 0 0.02525000" rpy="0 1.5707963 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/base_col_10.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_base_col_11">
+      <origin xyz="-0.05092357 0 0.02525000" rpy="0 1.5707963 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/base_col_11.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_hook_col_00">
+      <origin xyz="0.05197534 0 -0.02535000" rpy="0 -1.5707963268 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/hook_col_00.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_hook_col_01">
+      <origin xyz="0.05197534 0 -0.02535000" rpy="0 -1.5707963268 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/hook_col_01.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_hook_col_02">
+      <origin xyz="0.05197534 0 -0.02535000" rpy="0 -1.5707963268 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/hook_col_02.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_hook_col_03">
+      <origin xyz="0.05197534 0 -0.02535000" rpy="0 -1.5707963268 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/hook_col_03.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_hook_col_04">
+      <origin xyz="0.05197534 0 -0.02535000" rpy="0 -1.5707963268 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/hook_col_04.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_hook_col_05">
+      <origin xyz="0.05197534 0 -0.02535000" rpy="0 -1.5707963268 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/hook_col_05.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_hook_col_06">
+      <origin xyz="0.05197534 0 -0.02535000" rpy="0 -1.5707963268 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/hook_col_06.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_hook_col_07">
+      <origin xyz="0.05197534 0 -0.02535000" rpy="0 -1.5707963268 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/hook_col_07.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_hook_col_08">
+      <origin xyz="0.05197534 0 -0.02535000" rpy="0 -1.5707963268 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/hook_col_08.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_hook_col_09">
+      <origin xyz="0.05197534 0 -0.02535000" rpy="0 -1.5707963268 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/hook_col_09.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_hook_col_10">
+      <origin xyz="0.05197534 0 -0.02535000" rpy="0 -1.5707963268 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/hook_col_10.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_hook_col_11">
+      <origin xyz="0.05197534 0 -0.02535000" rpy="0 -1.5707963268 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/hook_col_11.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_hook_col_12">
+      <origin xyz="0.05197534 0 -0.02535000" rpy="0 -1.5707963268 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/hook_col_12.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_hook_col_13">
+      <origin xyz="0.05197534 0 -0.02535000" rpy="0 -1.5707963268 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/hook_col_13.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_hook_col_14">
+      <origin xyz="0.05197534 0 -0.02535000" rpy="0 -1.5707963268 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/hook_col_14.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_hook_col_15">
+      <origin xyz="0.05197534 0 -0.02535000" rpy="0 -1.5707963268 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/hook_col_15.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+    <collision name="gripper_hook_col_16">
+      <origin xyz="0.05197534 0 -0.02535000" rpy="0 -1.5707963268 0" />
+      <geometry>
+        <mesh filename="./meshes/gripper_hook/collision/hook_col_16.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="gripper_tcp">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.004" />
+      </geometry>
+      <material name="">
+        <color rgba="0.1 0.9 1 1" />
+      </material>
+    </visual>
+    <visual name="gripper_tcp_axis_x">
+      <origin xyz="0.020 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.040 0.003 0.003" />
+      </geometry>
+      <material name="gripper_axis_x">
+        <color rgba="1 0 0 1" />
+      </material>
+    </visual>
+    <visual name="gripper_tcp_axis_y">
+      <origin xyz="0 0.020 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.003 0.040 0.003" />
+      </geometry>
+      <material name="gripper_axis_y">
+        <color rgba="0 0.85 0 1" />
+      </material>
+    </visual>
+    <visual name="gripper_tcp_axis_z">
+      <origin xyz="0 0 0.020" rpy="0 0 0" />
+      <geometry>
+        <box size="0.003 0.003 0.040" />
+      </geometry>
+      <material name="gripper_axis_z">
+        <color rgba="0.1 0.35 1 1" />
+      </material>
+    </visual>
+  </link>
+  <joint name="gripper_tcp_joint" type="fixed" dont_collapse="true">
+    <origin xyz="0.0183 0.1085 0" rpy="0 0 0" />
+    <parent link="gripper_hook" />
+    <child link="gripper_tcp" />
+  </joint>
+  <link name="gripper_grasp_center">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <sphere radius="0.006" />
+      </geometry>
+      <material name="">
+        <color rgba="0.1 1 0.35 0.45" />
+      </material>
+    </visual>
+    <visual name="gripper_grasp_center_axis_x">
+      <origin xyz="0.018 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.036 0.003 0.003" />
+      </geometry>
+      <material name="gripper_axis_x">
+        <color rgba="1 0 0 0.7" />
+      </material>
+    </visual>
+    <visual name="gripper_grasp_center_axis_y">
+      <origin xyz="0 0.018 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.003 0.036 0.003" />
+      </geometry>
+      <material name="gripper_axis_y">
+        <color rgba="0 0.85 0 0.7" />
+      </material>
+    </visual>
+    <visual name="gripper_grasp_center_axis_z">
+      <origin xyz="0 0 0.018" rpy="0 0 0" />
+      <geometry>
+        <box size="0.003 0.003 0.036" />
+      </geometry>
+      <material name="gripper_axis_z">
+        <color rgba="0.1 0.35 1 0.7" />
+      </material>
+    </visual>
+  </link>
+  <joint name="gripper_grasp_center_joint" type="fixed" dont_collapse="true">
+    <origin xyz="0.0183 0.0880 0" rpy="0 0 0" />
+    <parent link="gripper_hook" />
+    <child link="gripper_grasp_center" />
+  </joint>
+</robot>

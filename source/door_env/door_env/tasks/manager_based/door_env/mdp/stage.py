@@ -12,6 +12,25 @@ def _snapshot_articulation(asset: Articulation, env_ids: torch.Tensor):
     return root, qpos, qvel
 
 
+def reset_root_state_to_default(
+    env,
+    env_ids: torch.Tensor,
+    asset_cfg: SceneEntityCfg,
+):
+    """Reset an articulation root pose/velocity to its configured initial state."""
+    asset: Articulation = env.scene[asset_cfg.name]
+
+    if hasattr(asset.data, "default_root_state"):
+        root_state = asset.data.default_root_state[env_ids].clone()
+        if hasattr(env.scene, "env_origins"):
+            root_state[:, :3] += env.scene.env_origins[env_ids]
+    else:
+        root_state = asset.data.root_state_w[env_ids].clone()
+        root_state[:, 7:] = 0.0
+
+    asset.write_root_state_to_sim(root_state, env_ids=env_ids)
+
+
 def _apply_articulation(
     asset: Articulation,
     env_ids: torch.Tensor,

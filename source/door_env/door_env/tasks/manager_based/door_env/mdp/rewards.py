@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import torch
 from typing import TYPE_CHECKING
 
@@ -110,36 +111,6 @@ def ee_tcp_to_handle_grasp_point_distance(
     return torch.linalg.norm(pTcp - pG, dim=-1)
 
 
-def _gripper_width_and_closedness(
-    env: "ManagerBasedRLEnv",
-    gripper_cfg: SceneEntityCfg,
-    open_width: float = 0.09,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    robot: Articulation = env.scene[gripper_cfg.name]
-    jids = gripper_cfg.joint_ids
-    q = robot.data.joint_pos[:, jids]
-
-    if q.ndim == 2 and q.shape[1] >= 2:
-        width = q.sum(dim=-1)
-    else:
-        width = 2.0 * q.reshape(-1)
-
-    closedness = 1.0 - torch.clamp(width / open_width, 0.0, 1.0)
-    return width, closedness
-
-
-def _active_mean(value: torch.Tensor, active: torch.Tensor) -> torch.Tensor:
-    if torch.any(active):
-        return value[active].mean().detach()
-    return torch.zeros((), dtype=value.dtype, device=value.device)
-
-
-def _active_max(value: torch.Tensor, active: torch.Tensor) -> torch.Tensor:
-    if torch.any(active):
-        return value[active].max().detach()
-    return torch.zeros((), dtype=value.dtype, device=value.device)
-
-
 # -----------------------------------------------------------------------------
 # Handle-only contact force (filtered) utilities
 # Requires ContactSensorCfg(filter_prim_paths_expr=["{ENV_REGEX_NS}/Door/handle_1"])
@@ -173,209 +144,6 @@ def filtered_contact_force_vec_w(sensor: ContactSensor) -> torch.Tensor:
 def filtered_contact_force_norm(sensor: ContactSensor) -> torch.Tensor:
     v = filtered_contact_force_vec_w(sensor)
     return torch.linalg.norm(v, dim=-1)
-
-
-def compute_stage1_grasp_quality(
-    env: "ManagerBasedRLEnv",
-    hand_cfg: SceneEntityCfg,
-    handle_cfg: SceneEntityCfg,
-    left_finger_cfg: SceneEntityCfg,
-    right_finger_cfg: SceneEntityCfg,
-    gripper_cfg: SceneEntityCfg,
-    left_sensor_name: str = "left_finger_contact",
-    right_sensor_name: str = "right_finger_contact",
-    ee_offset_pos: tuple[float, float, float] = (0.1523, 0.0, 0.0),
-    handle_offset_h: tuple[float, float, float] = (-0.08, 0.04, 0.01),
-    near_sigma: float = 0.06,
-    near_hard_threshold: float = 0.14,
-    grasp_axis: int = 2,
-    min_sep: float = 0.005,
-    sep_scale: float = 0.010,
-    symmetry_scale: float = 0.015,
-    gripper_open_axis_hand: tuple[float, float, float] = (0.0, 1.0, 0.0),
-    gripper_approach_axis_hand: tuple[float, float, float] = (1.0, 0.0, 0.0),
-    handle_approach_axis: int = 1,
-    expected_approach_sign: float = 1.0,
-    contact_threshold: float = 0.25,
-    contact_scale: float = 0.50,
-    balance_power: float = 0.5,
-    open_width: float = 0.09,
-    min_closedness: float = 0.35,
-    target_closedness: float = 0.65,
-    max_closedness: float = 0.98,
-    single_force_high: float = 1.0,
-    single_force_low: float = 0.15,
-) -> dict[str, torch.Tensor]:
-    if hasattr(env, "_grasp_success_given"):
-        grasp_ok = env._grasp_success_given.to(dtype=torch.bool)
-    else:
-        grasp_ok = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
-    physical_unlocked = _physical_door_unlocked(env)
-    active = grasp_ok & (~physical_unlocked)
-
-    p_hand, q_hand = _body_pose_w(env, hand_cfg)
-    p_handle, q_handle = _body_pose_w(env, handle_cfg)
-    p_left, _ = _body_pose_w(env, left_finger_cfg)
-    p_right, _ = _body_pose_w(env, right_finger_cfg)
-
-    ee_offset = torch.tensor(ee_offset_pos, device=p_hand.device, dtype=p_hand.dtype).unsqueeze(0).repeat(p_hand.shape[0], 1)
-    handle_offset = torch.tensor(handle_offset_h, device=p_handle.device, dtype=p_handle.dtype).unsqueeze(0).repeat(p_handle.shape[0], 1)
-    p_tcp = p_hand + quat_rotate(q_hand, ee_offset)
-    p_target = p_handle + quat_rotate(q_handle, handle_offset)
-    tcp_dist = torch.linalg.norm(p_tcp - p_target, dim=-1)
-
-    near_score = torch.exp(-torch.square(tcp_dist / float(max(near_sigma, 1e-6))))
-    near_score = torch.where(tcp_dist <= float(near_hard_threshold), near_score, torch.zeros_like(near_score))
-
-    q_handle_inv = quat_conjugate(q_handle)
-    left_h = quat_rotate(q_handle_inv, p_left - p_handle)
-    right_h = quat_rotate(q_handle_inv, p_right - p_handle)
-    l = left_h[:, grasp_axis]
-    r = right_h[:, grasp_axis]
-
-    opposite = (l * r < 0.0).float()
-    sep = torch.abs(l - r)
-    sep_score = torch.tanh(torch.clamp(sep - float(min_sep), min=0.0) / float(max(sep_scale, 1e-6)))
-    symmetry_error = torch.abs(torch.abs(l) - torch.abs(r))
-    symmetry_score = torch.exp(-symmetry_error / float(max(symmetry_scale, 1e-6)))
-    wrap_score = (opposite * sep_score * symmetry_score).clamp(0.0, 1.0)
-
-    gripper_open_axis_w = _safe_unit(_local_vec_to_world(q_hand, gripper_open_axis_hand))
-    gripper_approach_axis_w = _safe_unit(_local_vec_to_world(q_hand, gripper_approach_axis_hand))
-    handle_grasp_axis_w = _safe_unit(_handle_axis_world(q_handle, grasp_axis))
-    handle_approach_axis_w = _safe_unit(_handle_axis_world(q_handle, handle_approach_axis))
-
-    open_dot = torch.sum(gripper_open_axis_w * handle_grasp_axis_w, dim=-1)
-    open_align = torch.abs(open_dot).clamp(0.0, 1.0)
-    approach_dot_raw = torch.sum(gripper_approach_axis_w * handle_approach_axis_w, dim=-1)
-    approach_align = (float(expected_approach_sign) * approach_dot_raw).clamp(0.0, 1.0)
-    pose_score = (0.40 * wrap_score + 0.20 * open_align + 0.40 * approach_align).clamp(0.0, 1.0)
-
-    f_left = filtered_contact_force_norm(env.scene[left_sensor_name])
-    f_right = filtered_contact_force_norm(env.scene[right_sensor_name])
-    f_min = torch.minimum(f_left, f_right)
-    f_max = torch.maximum(f_left, f_right)
-    contact_ok = f_min > float(contact_threshold)
-    contact_score = torch.tanh(
-        torch.clamp(f_min - float(contact_threshold), min=0.0) / float(max(contact_scale, 1e-6))
-    )
-    balance_score = (f_min / (f_max + 1.0e-6)).clamp(0.0, 1.0) ** float(balance_power)
-
-    _, closedness = _gripper_width_and_closedness(env, gripper_cfg, open_width=open_width)
-    close_low = (
-        (closedness - float(min_closedness)) / float(max(target_closedness - min_closedness, 1e-6))
-    ).clamp(0.0, 1.0)
-    close_high = (
-        (float(max_closedness) - closedness) / float(max(max_closedness - target_closedness, 1e-6))
-    ).clamp(0.0, 1.0)
-    closure_score = close_low * close_high
-
-    geometry_score = (
-        0.25 * near_score
-        + 0.35 * wrap_score
-        + 0.25 * pose_score
-        + 0.15 * closure_score
-    )
-    contact_quality = contact_score * (0.5 + 0.5 * balance_score)
-    quality = (geometry_score * contact_quality).clamp(0.0, 1.0)
-
-    closed_no_contact = (closedness > 0.75) & (~contact_ok)
-    single_finger = (f_max > float(single_force_high)) & (f_min < float(single_force_low))
-
-    return {
-        "active": active,
-        "quality": quality,
-        "near_score": near_score,
-        "wrap_score": wrap_score,
-        "open_align": open_align,
-        "approach_dot_raw": approach_dot_raw,
-        "approach_align": approach_align,
-        "pose_score": pose_score,
-        "contact_score": contact_score,
-        "contact_ok": contact_ok,
-        "balance_score": balance_score,
-        "closure_score": closure_score,
-        "closedness": closedness,
-        "tcp_dist": tcp_dist,
-        "f_left": f_left,
-        "f_right": f_right,
-        "f_min": f_min,
-        "f_max": f_max,
-        "closed_no_contact": closed_no_contact,
-        "single_finger": single_finger,
-    }
-
-
-def grasp_quality_keep_reward(
-    env: "ManagerBasedRLEnv",
-    hand_cfg: SceneEntityCfg,
-    handle_cfg: SceneEntityCfg,
-    left_finger_cfg: SceneEntityCfg,
-    right_finger_cfg: SceneEntityCfg,
-    gripper_cfg: SceneEntityCfg,
-    left_sensor_name: str = "left_finger_contact",
-    right_sensor_name: str = "right_finger_contact",
-    ee_offset_pos: tuple[float, float, float] = (0.1523, 0.0, 0.0),
-    handle_offset_h: tuple[float, float, float] = (-0.08, 0.04, 0.01),
-    near_sigma: float = 0.06,
-    near_hard_threshold: float = 0.14,
-    grasp_axis: int = 2,
-    min_sep: float = 0.005,
-    sep_scale: float = 0.010,
-    symmetry_scale: float = 0.015,
-    gripper_open_axis_hand: tuple[float, float, float] = (0.0, 1.0, 0.0),
-    gripper_approach_axis_hand: tuple[float, float, float] = (1.0, 0.0, 0.0),
-    handle_approach_axis: int = 1,
-    expected_approach_sign: float = 1.0,
-    contact_threshold: float = 0.25,
-    contact_scale: float = 0.50,
-    balance_power: float = 0.5,
-    open_width: float = 0.09,
-    min_closedness: float = 0.35,
-    target_closedness: float = 0.65,
-    max_closedness: float = 0.98,
-    single_force_high: float = 1.0,
-    single_force_low: float = 0.15,
-    closed_no_contact_penalty: float = 0.5,
-    single_finger_penalty: float = 0.5,
-) -> torch.Tensor:
-    terms = compute_stage1_grasp_quality(
-        env=env,
-        hand_cfg=hand_cfg,
-        handle_cfg=handle_cfg,
-        left_finger_cfg=left_finger_cfg,
-        right_finger_cfg=right_finger_cfg,
-        gripper_cfg=gripper_cfg,
-        left_sensor_name=left_sensor_name,
-        right_sensor_name=right_sensor_name,
-        ee_offset_pos=ee_offset_pos,
-        handle_offset_h=handle_offset_h,
-        near_sigma=near_sigma,
-        near_hard_threshold=near_hard_threshold,
-        grasp_axis=grasp_axis,
-        min_sep=min_sep,
-        sep_scale=sep_scale,
-        symmetry_scale=symmetry_scale,
-        gripper_open_axis_hand=gripper_open_axis_hand,
-        gripper_approach_axis_hand=gripper_approach_axis_hand,
-        handle_approach_axis=handle_approach_axis,
-        expected_approach_sign=expected_approach_sign,
-        contact_threshold=contact_threshold,
-        contact_scale=contact_scale,
-        balance_power=balance_power,
-        open_width=open_width,
-        min_closedness=min_closedness,
-        target_closedness=target_closedness,
-        max_closedness=max_closedness,
-        single_force_high=single_force_high,
-        single_force_low=single_force_low,
-    )
-    reward = (
-        terms["quality"]
-        - float(closed_no_contact_penalty) * terms["closed_no_contact"].float()
-        - float(single_finger_penalty) * terms["single_finger"].float()
-    )
-    return terms["active"].float() * reward
 
 
 def _local_vec_to_world(q: torch.Tensor, v_local: tuple[float, float, float]) -> torch.Tensor:
@@ -427,166 +195,167 @@ def approach_handle_inv_square(
     r = scale / (d * d + eps)
     return torch.clamp(r, max=clip)
 
-def align_grasp_around_handle_local(
-    env: "ManagerBasedRLEnv",
-    left_finger_cfg: SceneEntityCfg,
-    right_finger_cfg: SceneEntityCfg,
-    handle_cfg: SceneEntityCfg,
-    grasp_axis: int = 2,   # confirmed: handle-frame z
-    min_sep: float = 0.002,
-) -> torch.Tensor:
-    """1 if fingertips are on opposite sides along handle-frame grasp_axis (z)."""
-    pL, _ = _body_pose_w(env, left_finger_cfg)
-    pR, _ = _body_pose_w(env, right_finger_cfg)
-    pH, qH = _body_pose_w(env, handle_cfg)
-
-    L_h = quat_rotate(quat_conjugate(qH), pL - pH)  # [N,3]
-    R_h = quat_rotate(quat_conjugate(qH), pR - pH)
-
-    side = (L_h[:, grasp_axis] * R_h[:, grasp_axis]) < 0.0
-    sep = torch.abs(L_h[:, grasp_axis] - R_h[:, grasp_axis]) > min_sep
-    return (side & sep).float()
-
 def align_grasp_pose_v2_terms(
     env: "ManagerBasedRLEnv",
-    left_finger_cfg: SceneEntityCfg,
-    right_finger_cfg: SceneEntityCfg,
     handle_cfg: SceneEntityCfg,
     hand_cfg: SceneEntityCfg,
+    left_finger_cfg: SceneEntityCfg | None = None,
+    right_finger_cfg: SceneEntityCfg | None = None,
+    hook_approach_axis_hand: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    hook_mouth_axis_hand: tuple[float, float, float] = (0.0, 1.0, 0.0),
+    handle_approach_axis: int = 1,
+    expected_approach_sign: float = 1.0,
+    world_down_axis: tuple[float, float, float] = (0.0, 0.0, -1.0),
+    approach_weight: float = 0.70,
+    mouth_down_weight: float = 0.30,
+    # Deprecated two-finger parameters are accepted for config compatibility.
     grasp_axis: int = 2,
     min_sep: float = 0.010,
     sep_scale: float = 0.010,
     symmetry_scale: float = 0.015,
-    gripper_open_axis_hand: tuple[float, float, float] = (0.0, 1.0, 0.0),
-    gripper_approach_axis_hand: tuple[float, float, float] = (1.0, 0.0, 0.0),
-    handle_approach_axis: int = 1,
-    side_weight: float = 0.55,
-    open_weight: float = 0.25,
-    approach_weight: float = 0.20,
+    gripper_open_axis_hand: tuple[float, float, float] | None = None,
+    gripper_approach_axis_hand: tuple[float, float, float] | None = None,
+    side_weight: float = 0.0,
+    open_weight: float = 0.0,
 ):
-    pL, _ = _body_pose_w(env, left_finger_cfg)
-    pR, _ = _body_pose_w(env, right_finger_cfg)
-    pH, qH = _body_pose_w(env, handle_cfg)
+    _, qH = _body_pose_w(env, handle_cfg)
     _, qG = _body_pose_w(env, hand_cfg)
 
-    qHc = quat_conjugate(qH)
-    L_h = quat_rotate(qHc, pL - pH)
-    R_h = quat_rotate(qHc, pR - pH)
-
-    l = L_h[:, grasp_axis]
-    r = R_h[:, grasp_axis]
-
-    opposite = (l * r < 0.0).float()
-    sep = torch.abs(l - r)
-    sep_score = torch.tanh(torch.clamp(sep - float(min_sep), min=0.0) / float(sep_scale))
-
-    sym_err = torch.abs(torch.abs(l) - torch.abs(r))
-    sym_score = torch.exp(-sym_err / float(symmetry_scale))
-
-    side_score = opposite * sep_score * sym_score
-
-    g_open_w = _safe_unit(_local_vec_to_world(qG, gripper_open_axis_hand))
-    h_grasp_w = _safe_unit(_handle_axis_world(qH, grasp_axis))
-    open_dot = torch.sum(g_open_w * h_grasp_w, dim=-1)
-    open_align = torch.abs(open_dot).clamp(0.0, 1.0)
-
-    g_app_w = _safe_unit(_local_vec_to_world(qG, gripper_approach_axis_hand))
+    hook_approach_w = _safe_unit(_local_vec_to_world(qG, hook_approach_axis_hand))
     h_app_w = _safe_unit(_handle_axis_world(qH, handle_approach_axis))
-    app_dot = torch.sum(g_app_w * h_app_w, dim=-1)
-    approach_align = torch.abs(app_dot).clamp(0.0, 1.0)
+    app_dot = torch.sum(hook_approach_w * h_app_w, dim=-1)
+    approach_align = (float(expected_approach_sign) * app_dot).clamp(0.0, 1.0)
 
-    score_open = side_score * open_align
-    score_app = side_score * approach_align
+    hook_mouth_w = _safe_unit(_local_vec_to_world(qG, hook_mouth_axis_hand))
+    world_down = torch.tensor(world_down_axis, device=qG.device, dtype=qG.dtype).unsqueeze(0).repeat(qG.shape[0], 1)
+    world_down = _safe_unit(world_down)
+    mouth_dot = torch.sum(hook_mouth_w * world_down, dim=-1)
+    mouth_down_align = mouth_dot.clamp(0.0, 1.0)
 
-    wsum = float(side_weight + open_weight + approach_weight)
+    wsum = float(approach_weight + mouth_down_weight)
     score = (
-        float(side_weight) * side_score
-        + float(open_weight) * score_open
-        + float(approach_weight) * score_app
+        float(approach_weight) * approach_align
+        + float(mouth_down_weight) * mouth_down_align
     ) / max(wsum, 1e-6)
     score = score.clamp(0.0, 1.0)
 
+    zero = torch.zeros_like(score)
+    one = torch.ones_like(score)
     return {
         "score": score,
-        "side_score": side_score,
-        "open_align": open_align,
+        "side_score": one,
+        "open_align": mouth_down_align,
         "approach_align": approach_align,
-        "open_dot": open_dot,
+        "mouth_down_align": mouth_down_align,
+        "open_dot": mouth_dot,
+        "mouth_dot": mouth_dot,
         "approach_dot": app_dot,
-        "l": l,
-        "r": r,
-        "sep": sep,
-        "sym_err": sym_err,
+        "l": zero,
+        "r": zero,
+        "sep": zero,
+        "sym_err": zero,
     }
 
 def align_grasp_pose_v2(
     env: "ManagerBasedRLEnv",
-    left_finger_cfg: SceneEntityCfg,
-    right_finger_cfg: SceneEntityCfg,
     handle_cfg: SceneEntityCfg,
     hand_cfg: SceneEntityCfg,
+    left_finger_cfg: SceneEntityCfg | None = None,
+    right_finger_cfg: SceneEntityCfg | None = None,
+    hook_approach_axis_hand: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    hook_mouth_axis_hand: tuple[float, float, float] = (0.0, 1.0, 0.0),
+    handle_approach_axis: int = 1,
+    expected_approach_sign: float = 1.0,
+    world_down_axis: tuple[float, float, float] = (0.0, 0.0, -1.0),
+    approach_weight: float = 0.70,
+    mouth_down_weight: float = 0.30,
+    # Deprecated two-finger parameters are accepted for config compatibility.
     grasp_axis: int = 2,
     min_sep: float = 0.010,
     sep_scale: float = 0.010,
     symmetry_scale: float = 0.015,
-    gripper_open_axis_hand: tuple[float, float, float] = (0.0, 1.0, 0.0),
-    gripper_approach_axis_hand: tuple[float, float, float] = (1.0, 0.0, 0.0),
-    handle_approach_axis: int = 1,
-    side_weight: float = 0.55,
-    open_weight: float = 0.25,
-    approach_weight: float = 0.20,
+    gripper_open_axis_hand: tuple[float, float, float] | None = None,
+    gripper_approach_axis_hand: tuple[float, float, float] | None = None,
+    side_weight: float = 0.0,
+    open_weight: float = 0.0,
 ) -> torch.Tensor:
     terms = align_grasp_pose_v2_terms(
         env=env,
-        left_finger_cfg=left_finger_cfg,
-        right_finger_cfg=right_finger_cfg,
         handle_cfg=handle_cfg,
         hand_cfg=hand_cfg,
+        left_finger_cfg=left_finger_cfg,
+        right_finger_cfg=right_finger_cfg,
+        hook_approach_axis_hand=hook_approach_axis_hand,
+        hook_mouth_axis_hand=hook_mouth_axis_hand,
+        handle_approach_axis=handle_approach_axis,
+        expected_approach_sign=expected_approach_sign,
+        world_down_axis=world_down_axis,
+        approach_weight=approach_weight,
+        mouth_down_weight=mouth_down_weight,
         grasp_axis=grasp_axis,
         min_sep=min_sep,
         sep_scale=sep_scale,
         symmetry_scale=symmetry_scale,
         gripper_open_axis_hand=gripper_open_axis_hand,
         gripper_approach_axis_hand=gripper_approach_axis_hand,
-        handle_approach_axis=handle_approach_axis,
         side_weight=side_weight,
         open_weight=open_weight,
-        approach_weight=approach_weight,
     )
     return terms["score"]
 
 
 # -----------------------------------------------------------------------------
-# (3) Close shaping when ready (pre-grasp)
+# (3) Hook grasp reward: grasp-center geometry + hook/handle contact
 # -----------------------------------------------------------------------------
-def close_gripper_shaping_when_ready(
+def grasp_handle_reward(
     env: "ManagerBasedRLEnv",
     handle_cfg: SceneEntityCfg,
-    left_finger_cfg: SceneEntityCfg,
-    right_finger_cfg: SceneEntityCfg,
     hand_cfg: SceneEntityCfg,
-    gripper_cfg: SceneEntityCfg,
+    contact_sensor_name: str = "hook_contact",
+    left_finger_cfg: SceneEntityCfg | None = None,
+    right_finger_cfg: SceneEntityCfg | None = None,
+    gripper_cfg: SceneEntityCfg | None = None,
     left_sensor_name: str = "left_finger_contact",
     right_sensor_name: str = "right_finger_contact",
-    distance_threshold: float = 0.10,
-    ee_offset_pos: tuple[float, float, float] = (0.1523, 0.0, 0.0),
+    # gates
+    distance_threshold: float = 0.08,
+    ee_offset_pos: tuple[float, float, float] = (0.0, 0.0, 0.0),
     handle_offset_h =  (-0.09, 0.04, 0.01),
-    # --- v2 align gate ---
-    grasp_axis: int = 2,
-    min_sep: float = 0.010,
-    sep_scale: float = 0.010,
-    symmetry_scale: float = 0.015,
-    gripper_open_axis_hand: tuple[float, float, float] = (0.0, 1.0, 0.0),
-    gripper_approach_axis_hand: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    hook_approach_axis_hand: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    hook_mouth_axis_hand: tuple[float, float, float] = (0.0, 1.0, 0.0),
     handle_approach_axis: int = 1,
-    side_weight: float = 0.55,
-    open_weight: float = 0.25,
-    approach_weight: float = 0.20,
-    align_threshold: float = 0.20,
-    # --- contact/closure ---
-    require_any_contact: bool = True,
-    contact_threshold: float = 0.5,
+    expected_approach_sign: float = 1.0,
+    world_down_axis: tuple[float, float, float] = (0.0, 0.0, -1.0),
+    approach_weight: float = 0.70,
+    mouth_down_weight: float = 0.30,
+    align_threshold: float = 0.30,
+    # force shaping
+    force_threshold: float = 0.25,
+    force_scale: float = 2.0,
+    # anti-hacking
+    hold_steps: int = 6,
+    hold_tau: float | None = None,
+    hold_power: float = 1.0,
+    hold_decay: float = 0.0,
+    # Deprecated two-finger params are accepted for config compatibility.
+    grasp_axis: int = 2,
+    min_sep: float = 0.0050,
+    sep_scale: float = 0.0010,
+    symmetry_scale: float = 0.015,
+    gripper_open_axis_hand: tuple[float, float, float] | None = None,
+    gripper_approach_axis_hand: tuple[float, float, float] | None = None,
+    align_side_weight: float = 0.0,
+    align_open_weight: float = 0.0,
+    align_approach_weight: float = 0.0,
+    side_scale: float = 10.0,
+    side_weight: float = 0.0,
     open_width: float = 0.09,
+    min_closedness: float = 0.0,
+    close_scale: float = 0.0,
+    close_power: float = 1.0,
+    balance_eps: float = 1e-6,
+    balance_power: float = 1.0,
+    finger_speed_std: float = 0.05,
 ) -> torch.Tensor:
     dist = ee_tcp_to_handle_grasp_point_distance(
         env,
@@ -595,132 +364,28 @@ def close_gripper_shaping_when_ready(
         ee_offset_pos=ee_offset_pos,
         handle_offset_h=handle_offset_h,
     )
-    near_ok = dist < distance_threshold
+    near_ok = dist < float(distance_threshold)
+    near_score = torch.exp(-torch.square(dist / float(max(distance_threshold, 1e-6))))
 
     align = align_grasp_pose_v2(
         env=env,
-        left_finger_cfg=left_finger_cfg,
-        right_finger_cfg=right_finger_cfg,
         handle_cfg=handle_cfg,
         hand_cfg=hand_cfg,
-        grasp_axis=grasp_axis,
-        min_sep=min_sep,
-        sep_scale=sep_scale,
-        symmetry_scale=symmetry_scale,
-        gripper_open_axis_hand=gripper_open_axis_hand,
-        gripper_approach_axis_hand=gripper_approach_axis_hand,
+        hook_approach_axis_hand=hook_approach_axis_hand,
+        hook_mouth_axis_hand=hook_mouth_axis_hand,
         handle_approach_axis=handle_approach_axis,
-        side_weight=side_weight,
-        open_weight=open_weight,
+        expected_approach_sign=expected_approach_sign,
+        world_down_axis=world_down_axis,
         approach_weight=approach_weight,
+        mouth_down_weight=mouth_down_weight,
     )
-    align_ok = align >= align_threshold
+    align_ok = align >= float(align_threshold)
 
-    gate = near_ok & align_ok
-    if require_any_contact:
-        fL = filtered_contact_force_norm(env.scene[left_sensor_name])
-        fR = filtered_contact_force_norm(env.scene[right_sensor_name])
-        gate = gate & (torch.maximum(fL, fR) > contact_threshold)
+    force = filtered_contact_force_norm(env.scene[contact_sensor_name])
+    contact_ok = force > float(force_threshold)
+    contact_score = torch.tanh(torch.clamp(force - float(force_threshold), min=0.0) / float(max(force_scale, 1e-6)))
 
-    _, closedness = _gripper_width_and_closedness(env, gripper_cfg, open_width=open_width)
-    return gate.float() * closedness
-
-
-# -----------------------------------------------------------------------------
-# (4) Grasp reward: direction-specific force in handle frame (|Fz|) + side penalty
-# -----------------------------------------------------------------------------
-def grasp_handle_reward(
-    env: "ManagerBasedRLEnv",
-    handle_cfg: SceneEntityCfg,
-    left_finger_cfg: SceneEntityCfg,
-    right_finger_cfg: SceneEntityCfg,
-    hand_cfg: SceneEntityCfg,
-    gripper_cfg: SceneEntityCfg,
-    left_sensor_name: str = "left_finger_contact",
-    right_sensor_name: str = "right_finger_contact",
-    # gates
-    distance_threshold: float = 0.08,
-    handle_offset_h =  (-0.09, 0.04, 0.01),
-    grasp_axis: int = 2,
-    min_sep: float = 0.0050,
-    sep_scale: float = 0.0010,
-    symmetry_scale: float = 0.015,
-    gripper_open_axis_hand: tuple[float, float, float] = (0.0, 1.0, 0.0),
-    gripper_approach_axis_hand: tuple[float, float, float] = (1.0, 0.0, 0.0),
-    handle_approach_axis: int = 1,
-    align_side_weight: float = 0.55,
-    align_open_weight: float = 0.25,
-    align_approach_weight: float = 0.20,
-    align_threshold: float = 0.30,
-    # force shaping
-    force_threshold: float = 2.0,
-    force_scale: float = 10.0,
-    side_scale: float = 10.0,
-    side_weight: float = 0.3,
-    # closure shaping
-    open_width: float = 0.09,
-    min_closedness: float = 0.4,
-    close_scale: float = 1.0,
-    close_power: float = 2.0,
-    # anti-hacking
-    hold_steps: int = 6,
-    balance_eps: float = 1e-6,
-    balance_power: float = 2.0,
-    finger_speed_std: float = 0.05,
-    hold_tau: float | None = None,
-    hold_power: float = 1.0,
-    hold_decay: float = 0.0,
-) -> torch.Tensor:
-    dist = fingertip_mid_to_handle_grasp_point_distance(
-        env, left_finger_cfg, right_finger_cfg, handle_cfg, handle_offset_h=(handle_offset_h)
-    )
-    near_ok = dist < distance_threshold
-
-    wrap = align_grasp_pose_v2(
-        env=env,
-        left_finger_cfg=left_finger_cfg,
-        right_finger_cfg=right_finger_cfg,
-        handle_cfg=handle_cfg,
-        hand_cfg=hand_cfg,
-        grasp_axis=grasp_axis,
-        min_sep=min_sep,
-        sep_scale=sep_scale,
-        symmetry_scale=symmetry_scale,
-        gripper_open_axis_hand=gripper_open_axis_hand,
-        gripper_approach_axis_hand=gripper_approach_axis_hand,
-        handle_approach_axis=handle_approach_axis,
-        side_weight=align_side_weight,
-        open_weight=align_open_weight,
-        approach_weight=align_approach_weight,
-    )
-    wrap_ok = wrap >= align_threshold
-
-    _, qH = _body_pose_w(env, handle_cfg)
-    qHc = quat_conjugate(qH)
-
-    left: ContactSensor = env.scene[left_sensor_name]
-    right: ContactSensor = env.scene[right_sensor_name]
-    FL_w = filtered_contact_force_vec_w(left)
-    FR_w = filtered_contact_force_vec_w(right)
-
-    FL_h = quat_rotate(qHc, FL_w)
-    FR_h = quat_rotate(qHc, FR_w)
-
-    Fz_L = torch.abs(FL_h[:, grasp_axis])
-    Fz_R = torch.abs(FR_h[:, grasp_axis])
-    Fz_min = torch.minimum(Fz_L, Fz_R)
-    Fz_max = torch.maximum(Fz_L, Fz_R)
-
-    contact_ok = Fz_min > force_threshold
-
-    side_L = torch.abs(FL_h[:, 0]) + torch.abs(FL_h[:, 1])
-    side_R = torch.abs(FR_h[:, 0]) + torch.abs(FR_h[:, 1])
-    side_sum = side_L + side_R
-
-    _, closedness = _gripper_width_and_closedness(env, gripper_cfg, open_width=open_width)
-    close_ok = closedness > min_closedness
-
-    gate = near_ok & wrap_ok & contact_ok & close_ok
+    gate = near_ok & align_ok & contact_ok
 
     N = dist.shape[0]
     device = dist.device
@@ -740,18 +405,18 @@ def grasp_handle_reward(
     hold_prog = 1.0 - torch.exp(-env._grasp_hold_counter.float() / tau)
     hold_prog = torch.clamp(hold_prog, 0.0, 1.0) ** float(hold_power)
 
-    balance = (Fz_min / (Fz_max + balance_eps)).clamp(0.0, 1.0) ** balance_power
-    r_main = torch.tanh(torch.clamp(Fz_min - force_threshold, min=0.0) / force_scale)
-    r_side = torch.tanh(side_sum / side_scale)
-    close_factor = (closedness.clamp(0.0, 1.0) ** close_power)
+    rew = hold_prog * contact_score
+    rew = rew * (0.2 + 0.8 * near_score.clamp(0.0, 1.0))
+    rew = rew * (0.2 + 0.8 * align.clamp(0.0, 1.0))
 
-    robot: Articulation = env.scene[gripper_cfg.name]
-    dq = torch.abs(robot.data.joint_vel[:, gripper_cfg.joint_ids]).sum(dim=-1)
-    stability = 0.3 + 0.7 * torch.exp(-dq / finger_speed_std)
-
-    rew = hold_prog * balance * stability
-    rew = rew * (r_main - side_weight * r_side).clamp(min=0.0)
-    rew = rew * (0.1 + 0.9 * (1.0 + close_scale * close_factor))
+    if not hasattr(env, "extras") or env.extras is None:
+        env.extras = {}
+    if "log" not in env.extras:
+        env.extras["log"] = {}
+    env.extras["log"]["hook_grasp/contact_force_mean"] = force.mean().detach()
+    env.extras["log"]["hook_grasp/contact_ok_ratio"] = contact_ok.float().mean().detach()
+    env.extras["log"]["hook_grasp/near_ok_ratio"] = near_ok.float().mean().detach()
+    env.extras["log"]["hook_grasp/align_mean"] = align.mean().detach()
     return rew
 
 def grasp_handle_reward_preunlock_only(
@@ -765,21 +430,29 @@ def grasp_handle_reward_preunlock_only(
     # --- original grasp_handle_reward params ---
     handle_cfg: SceneEntityCfg = SceneEntityCfg("door", body_names=["handle_1"]),
     handle_offset_h: tuple[float, float, float] = (-0.09, 0.04, 0.01),
-    left_finger_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["link7"]),
-    right_finger_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["link8"]),
-    hand_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["link6"]),
-    gripper_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=["gripper_joint"]),
+    left_finger_cfg: SceneEntityCfg | None = None,
+    right_finger_cfg: SceneEntityCfg | None = None,
+    hand_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["gripper_grasp_center"]),
+    gripper_cfg: SceneEntityCfg | None = None,
+    contact_sensor_name: str = "hook_contact",
     left_sensor_name: str = "left_finger_contact",
     right_sensor_name: str = "right_finger_contact",
 
     distance_threshold: float = 0.10,
+    ee_offset_pos: tuple[float, float, float] = (0.0, 0.0, 0.0),
     grasp_axis: int = 2,
     min_sep: float = 0.005,
     sep_scale: float = 0.010,
     symmetry_scale: float = 0.015,
-    gripper_open_axis_hand: tuple[float, float, float] = (0.0, 1.0, 0.0),
-    gripper_approach_axis_hand: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    gripper_open_axis_hand: tuple[float, float, float] | None = None,
+    gripper_approach_axis_hand: tuple[float, float, float] | None = None,
+    hook_approach_axis_hand: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    hook_mouth_axis_hand: tuple[float, float, float] = (0.0, 1.0, 0.0),
     handle_approach_axis: int = 1,
+    expected_approach_sign: float = 1.0,
+    world_down_axis: tuple[float, float, float] = (0.0, 0.0, -1.0),
+    approach_weight: float = 0.70,
+    mouth_down_weight: float = 0.30,
     align_side_weight: float = 0.70,
     align_open_weight: float = 0.10,
     align_approach_weight: float = 0.20,
@@ -815,16 +488,24 @@ def grasp_handle_reward_preunlock_only(
         right_finger_cfg=right_finger_cfg,
         hand_cfg=hand_cfg,
         gripper_cfg=gripper_cfg,
+        contact_sensor_name=contact_sensor_name,
         left_sensor_name=left_sensor_name,
         right_sensor_name=right_sensor_name,
         distance_threshold=distance_threshold,
+        ee_offset_pos=ee_offset_pos,
         grasp_axis=grasp_axis,
         min_sep=min_sep,
         sep_scale=sep_scale,
         symmetry_scale=symmetry_scale,
         gripper_open_axis_hand=gripper_open_axis_hand,
         gripper_approach_axis_hand=gripper_approach_axis_hand,
+        hook_approach_axis_hand=hook_approach_axis_hand,
+        hook_mouth_axis_hand=hook_mouth_axis_hand,
         handle_approach_axis=handle_approach_axis,
+        expected_approach_sign=expected_approach_sign,
+        world_down_axis=world_down_axis,
+        approach_weight=approach_weight,
+        mouth_down_weight=mouth_down_weight,
         align_side_weight=align_side_weight,
         align_open_weight=align_open_weight,
         align_approach_weight=align_approach_weight,
@@ -878,14 +559,16 @@ def grasp_handle_reward_preunlock_only(
 def grasp_success_bonus(
     env: "ManagerBasedRLEnv",
     handle_cfg: SceneEntityCfg,
-    left_finger_cfg: SceneEntityCfg,
-    right_finger_cfg: SceneEntityCfg,
-    hand_cfg: SceneEntityCfg,
-    gripper_cfg: SceneEntityCfg,
+    left_finger_cfg: SceneEntityCfg | None = None,
+    right_finger_cfg: SceneEntityCfg | None = None,
+    hand_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["gripper_grasp_center"]),
+    gripper_cfg: SceneEntityCfg | None = None,
+    contact_sensor_name: str = "hook_contact",
     left_sensor_name: str = "left_finger_contact",
     right_sensor_name: str = "right_finger_contact",
     distance_threshold: float = 0.1,
-    force_threshold: float = 1.0,
+    ee_offset_pos: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    force_threshold: float = 0.25,
     hold_steps: int = 5,
     open_width: float = 0.09,
     min_closedness: float = 0.5,
@@ -900,7 +583,14 @@ def grasp_success_bonus(
     handle_joint_cfg: SceneEntityCfg | None = None,
     relax_near_after_handle_pos: float = -0.05,
     less_than: bool = True,
-    # --- v2 wrap gate ---
+    # --- hook pose gate ---
+    hook_approach_axis_hand: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    hook_mouth_axis_hand: tuple[float, float, float] = (0.0, 1.0, 0.0),
+    expected_approach_sign: float = 1.0,
+    world_down_axis: tuple[float, float, float] = (0.0, 0.0, -1.0),
+    approach_weight: float = 0.70,
+    mouth_down_weight: float = 0.30,
+    # Deprecated two-finger params are accepted for config compatibility.
     grasp_axis: int = 2,
     min_sep: float = 0.010,
     sep_scale: float = 0.010,
@@ -913,58 +603,36 @@ def grasp_success_bonus(
     align_approach_weight: float = 0.20,
     align_threshold: float = 0.30,
 ) -> torch.Tensor:
-    if use_grasp_point:
-        dist = fingertip_mid_to_handle_grasp_point_distance(
-            env, left_finger_cfg, right_finger_cfg, handle_cfg, handle_offset_h=handle_offset_h
-        )
-    else:
-        dist = fingertip_mid_to_handle_distance(env, left_finger_cfg, right_finger_cfg, handle_cfg)
+    dist = ee_tcp_to_handle_grasp_point_distance(
+        env,
+        hand_cfg,
+        handle_cfg,
+        ee_offset_pos=ee_offset_pos,
+        handle_offset_h=handle_offset_h,
+    )
 
-    near_ok = dist < distance_threshold
+    near_ok = dist < float(distance_threshold)
 
     if require_wrap:
-        wrap = align_grasp_pose_v2(
+        align = align_grasp_pose_v2(
             env=env,
-            left_finger_cfg=left_finger_cfg,
-            right_finger_cfg=right_finger_cfg,
             handle_cfg=handle_cfg,
             hand_cfg=hand_cfg,
-            grasp_axis=grasp_axis,
-            min_sep=min_sep,
-            sep_scale=sep_scale,
-            symmetry_scale=symmetry_scale,
-            gripper_open_axis_hand=gripper_open_axis_hand,
-            gripper_approach_axis_hand=gripper_approach_axis_hand,
+            hook_approach_axis_hand=hook_approach_axis_hand,
+            hook_mouth_axis_hand=hook_mouth_axis_hand,
             handle_approach_axis=handle_approach_axis,
-            side_weight=align_side_weight,
-            open_weight=align_open_weight,
-            approach_weight=align_approach_weight,
+            expected_approach_sign=expected_approach_sign,
+            world_down_axis=world_down_axis,
+            approach_weight=approach_weight,
+            mouth_down_weight=mouth_down_weight,
         )
-        wrap_ok = wrap >= align_threshold
+        align_ok = align >= float(align_threshold)
     else:
-        wrap_ok = torch.ones_like(near_ok, dtype=torch.bool)
+        align = torch.ones_like(dist)
+        align_ok = torch.ones_like(near_ok, dtype=torch.bool)
 
-    _, closedness = _gripper_width_and_closedness(env, gripper_cfg, open_width=open_width)
-    close_ok = closedness > min_closedness
-
-    sL = env.scene[left_sensor_name]
-    sR = env.scene[right_sensor_name]
-
-    if use_force_norm:
-        fL = filtered_contact_force_norm(sL)
-        fR = filtered_contact_force_norm(sR)
-    else:
-        _, qH2 = _body_pose_w(env, handle_cfg)
-        qHc = quat_conjugate(qH2)
-        FL_h = quat_rotate(qHc, filtered_contact_force_vec_w(sL))
-        FR_h = quat_rotate(qHc, filtered_contact_force_vec_w(sR))
-        fL = torch.abs(FL_h[:, grasp_axis])
-        fR = torch.abs(FR_h[:, grasp_axis])
-
-    if require_any_finger_contact:
-        contact_ok = torch.maximum(fL, fR) > force_threshold
-    else:
-        contact_ok = torch.minimum(fL, fR) > force_threshold
+    force = filtered_contact_force_norm(env.scene[contact_sensor_name])
+    contact_ok = force > float(force_threshold)
 
     if handle_joint_cfg is not None:
         door: Articulation = env.scene[handle_joint_cfg.name]
@@ -979,8 +647,8 @@ def grasp_success_bonus(
         handle_pos = torch.zeros_like(dist)
         relax_phase = torch.zeros_like(near_ok, dtype=torch.bool)
 
-    gate_strict = near_ok & wrap_ok & close_ok & contact_ok
-    gate_relaxed = close_ok & contact_ok
+    gate_strict = near_ok & align_ok & contact_ok
+    gate_relaxed = align_ok & contact_ok
     gate = torch.where(relax_phase, gate_relaxed, gate_strict)
 
     N = dist.shape[0]
@@ -1037,14 +705,27 @@ def grasp_success_bonus(
 def press_handle_after_grasp_vel(
     env: "ManagerBasedRLEnv",
     handle_joint_cfg: SceneEntityCfg,
-    # 轻 gate：避免没抓住乱按
-    gripper_cfg: SceneEntityCfg,
+    hand_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["gripper_grasp_center"]),
+    handle_cfg: SceneEntityCfg | None = None,
+    gripper_cfg: SceneEntityCfg | None = None,
+    contact_sensor_name: str = "hook_contact",
     left_sensor_name: str = "left_finger_contact",
     right_sensor_name: str = "right_finger_contact",
-    contact_threshold: float = 0.5,
+    contact_threshold: float = 0.25,
     require_any_contact: bool = True,
     open_width: float = 0.08,
     min_closedness: float = 0.35,
+    distance_threshold: float = 0.12,
+    ee_offset_pos: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    handle_offset_h: tuple[float, float, float] = (-0.08, 0.04, 0.01),
+    hook_approach_axis_hand: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    hook_mouth_axis_hand: tuple[float, float, float] = (0.0, 1.0, 0.0),
+    handle_approach_axis: int = 1,
+    expected_approach_sign: float = 1.0,
+    world_down_axis: tuple[float, float, float] = (0.0, 0.0, -1.0),
+    approach_weight: float = 0.70,
+    mouth_down_weight: float = 0.30,
+    align_threshold: float = 0.30,
     # 方向/抗抖
     less_than: bool = True,
     vel_deadzone: float = 0.01,
@@ -1072,13 +753,34 @@ def press_handle_after_grasp_vel(
         handle_pos = door.data.joint_pos[:, jids].mean(dim=-1)
         handle_vel_raw = door.data.joint_vel[:, jids].mean(dim=-1)
 
-    # light gate (same style as unlock)
-    fL = filtered_contact_force_norm(env.scene[left_sensor_name])
-    fR = filtered_contact_force_norm(env.scene[right_sensor_name])
-    contact_ok = (torch.maximum(fL, fR) > contact_threshold) if require_any_contact else (torch.minimum(fL, fR) > contact_threshold)
-    _, closedness = _gripper_width_and_closedness(env, gripper_cfg, open_width=open_width)
-    close_ok = closedness > min_closedness
-    gate = contact_ok & close_ok
+    force = filtered_contact_force_norm(env.scene[contact_sensor_name])
+    contact_ok = force > float(contact_threshold)
+    if handle_cfg is not None:
+        dist = ee_tcp_to_handle_grasp_point_distance(
+            env,
+            hand_cfg,
+            handle_cfg,
+            ee_offset_pos=ee_offset_pos,
+            handle_offset_h=handle_offset_h,
+        )
+        near_ok = dist < float(distance_threshold)
+        align = align_grasp_pose_v2(
+            env=env,
+            handle_cfg=handle_cfg,
+            hand_cfg=hand_cfg,
+            hook_approach_axis_hand=hook_approach_axis_hand,
+            hook_mouth_axis_hand=hook_mouth_axis_hand,
+            handle_approach_axis=handle_approach_axis,
+            expected_approach_sign=expected_approach_sign,
+            world_down_axis=world_down_axis,
+            approach_weight=approach_weight,
+            mouth_down_weight=mouth_down_weight,
+        )
+        align_ok = align >= float(align_threshold)
+    else:
+        near_ok = torch.ones_like(contact_ok, dtype=torch.bool)
+        align_ok = torch.ones_like(contact_ok, dtype=torch.bool)
+    gate = contact_ok & near_ok & align_ok
 
     # --- robust reset detection for buffers ---
     N = handle_pos.shape[0]
@@ -1134,114 +836,27 @@ def press_handle_after_grasp_vel(
     r = torch.clamp(r, -float(clip), float(clip))
     return (phase & gate).float() * r
 
-#----------discourage local optimum -----------------------------
-def stall_penalty_after_grasp(
-    env: "ManagerBasedRLEnv",
-    # --- use primitives only (Hydra-safe) ---
-    door_asset_name: str = "door",
-    handle_joint_name: str = "handle_joint",
-    left_sensor_name: str = "left_finger_contact",
-    right_sensor_name: str = "right_finger_contact",
-    contact_threshold: float = 0.5,
-    require_any_contact: bool = True,
-    # stall 判定
-    vel_eps: float = 0.01,
-    penalty: float = 0.01,
-    # --- phase window ---
-    recent_window_steps: int = 120,
-    grace_steps: int = 10,
-) -> torch.Tensor:
-    # Need grasp_success signal (set by grasp_success_bonus)
-    if not hasattr(env, "_grasp_success_given"):
-        return torch.zeros(env.num_envs, device=env.device)
-
-    N = env.num_envs
-    device = env.device
-
-    # ---------------- robust reset detection ----------------
-    reset_mask = None
-    if hasattr(env, "reset_buf"):
-        try:
-            reset_mask = env.reset_buf.to(dtype=torch.bool)
-        except Exception:
-            reset_mask = None
-
-    if reset_mask is None and hasattr(env, "episode_length_buf"):
-        if (not hasattr(env, "_prev_ep_len_stall")) or (env._prev_ep_len_stall.shape[0] != N):
-            env._prev_ep_len_stall = env.episode_length_buf.clone()
-        reset_mask = (env.episode_length_buf < env._prev_ep_len_stall) | (env.episode_length_buf == 0)
-        env._prev_ep_len_stall = env.episode_length_buf.clone()
-
-    # ---------------- phase TTL bookkeeping ----------------
-    if (not hasattr(env, "_grasp_recent_ttl")) or (env._grasp_recent_ttl.shape[0] != N):
-        env._grasp_recent_ttl = torch.zeros(N, device=device, dtype=torch.int32)
-    if (not hasattr(env, "_grasp_recent_grace")) or (env._grasp_recent_grace.shape[0] != N):
-        env._grasp_recent_grace = torch.zeros(N, device=device, dtype=torch.int32)
-    if (not hasattr(env, "_prev_grasp_success_given")) or (env._prev_grasp_success_given.shape[0] != N):
-        env._prev_grasp_success_given = env._grasp_success_given.clone()
-
-    if reset_mask is not None:
-        env._grasp_recent_ttl = torch.where(reset_mask, torch.zeros_like(env._grasp_recent_ttl), env._grasp_recent_ttl)
-        env._grasp_recent_grace = torch.where(reset_mask, torch.zeros_like(env._grasp_recent_grace), env._grasp_recent_grace)
-        env._prev_grasp_success_given = torch.where(reset_mask, torch.zeros_like(env._prev_grasp_success_given), env._prev_grasp_success_given)
-
-    newly = env._grasp_success_given & (~env._prev_grasp_success_given)
-    env._prev_grasp_success_given = env._grasp_success_given.clone()
-
-    env._grasp_recent_ttl = torch.where(
-        newly,
-        torch.full_like(env._grasp_recent_ttl, int(recent_window_steps)),
-        torch.clamp(env._grasp_recent_ttl - 1, min=0),
-    )
-    env._grasp_recent_grace = torch.where(
-        newly,
-        torch.full_like(env._grasp_recent_grace, int(grace_steps)),
-        torch.clamp(env._grasp_recent_grace - 1, min=0),
-    )
-
-    phase = env._grasp_recent_ttl > 0
-    grace_ok = env._grasp_recent_grace == 0
-
-    # ---------------- contact gate (handle-only filtered) ----------------
-    fL = filtered_contact_force_norm(env.scene[left_sensor_name])
-    fR = filtered_contact_force_norm(env.scene[right_sensor_name])
-    contact_ok = (torch.maximum(fL, fR) > contact_threshold) if require_any_contact else (torch.minimum(fL, fR) > contact_threshold)
-
-    # ---------------- handle joint velocity ----------------
-    door: Articulation = env.scene[door_asset_name]
-
-    # cache joint id lookup on env
-    if not hasattr(env, "_cache_joint_id_map"):
-        env._cache_joint_id_map = {}
-
-    key = (door_asset_name, handle_joint_name)
-    jid = env._cache_joint_id_map.get(key, None)
-    if jid is None:
-        # get joint names list
-        if hasattr(door, "data") and hasattr(door.data, "joint_names"):
-            jnames = list(door.data.joint_names)
-        elif hasattr(door, "joint_names"):
-            jnames = list(door.joint_names)
-        else:
-            raise RuntimeError("Cannot access door joint names to resolve handle_joint_name.")
-        if handle_joint_name not in jnames:
-            raise RuntimeError(f"Joint '{handle_joint_name}' not found in {door_asset_name}. Available: {jnames}")
-        jid = int(jnames.index(handle_joint_name))
-        env._cache_joint_id_map[key] = jid
-
-    handle_vel = door.data.joint_vel[:, jid]
-    stalled = torch.abs(handle_vel) < float(vel_eps)
-
-    bad = phase & grace_ok & contact_ok & stalled
-    return -float(penalty) * bad.float()
-
 def stall_penalty_after_grasp_pos(
     env: "ManagerBasedRLEnv",
     handle_joint_cfg: SceneEntityCfg,
+    hand_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["gripper_grasp_center"]),
+    handle_cfg: SceneEntityCfg | None = None,
+    contact_sensor_name: str = "hook_contact",
     left_sensor_name: str = "left_finger_contact",
     right_sensor_name: str = "right_finger_contact",
-    contact_threshold: float = 0.2,
+    contact_threshold: float = 0.25,
     require_any_contact: bool = False,
+    distance_threshold: float = 0.12,
+    ee_offset_pos: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    handle_offset_h: tuple[float, float, float] = (-0.08, 0.04, 0.01),
+    hook_approach_axis_hand: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    hook_mouth_axis_hand: tuple[float, float, float] = (0.0, 1.0, 0.0),
+    handle_approach_axis: int = 1,
+    expected_approach_sign: float = 1.0,
+    world_down_axis: tuple[float, float, float] = (0.0, 0.0, -1.0),
+    approach_weight: float = 0.70,
+    mouth_down_weight: float = 0.30,
+    align_threshold: float = 0.30,
     stall_pos: float = -0.10,
     pos_scale: float = 0.03,
     penalty: float = 0.02,
@@ -1297,9 +912,33 @@ def stall_penalty_after_grasp_pos(
     phase = env._grasp_recent_ttl > 0
     grace_ok = env._grasp_recent_grace == 0
 
-    fL = filtered_contact_force_norm(env.scene[left_sensor_name])
-    fR = filtered_contact_force_norm(env.scene[right_sensor_name])
-    contact_ok = (torch.maximum(fL, fR) > contact_threshold) if require_any_contact else (torch.minimum(fL, fR) > contact_threshold)
+    force = filtered_contact_force_norm(env.scene[contact_sensor_name])
+    contact_ok = force > float(contact_threshold)
+    if handle_cfg is not None:
+        dist = ee_tcp_to_handle_grasp_point_distance(
+            env,
+            hand_cfg,
+            handle_cfg,
+            ee_offset_pos=ee_offset_pos,
+            handle_offset_h=handle_offset_h,
+        )
+        near_ok = dist < float(distance_threshold)
+        align = align_grasp_pose_v2(
+            env=env,
+            handle_cfg=handle_cfg,
+            hand_cfg=hand_cfg,
+            hook_approach_axis_hand=hook_approach_axis_hand,
+            hook_mouth_axis_hand=hook_mouth_axis_hand,
+            handle_approach_axis=handle_approach_axis,
+            expected_approach_sign=expected_approach_sign,
+            world_down_axis=world_down_axis,
+            approach_weight=approach_weight,
+            mouth_down_weight=mouth_down_weight,
+        )
+        align_ok = align >= float(align_threshold)
+    else:
+        near_ok = torch.ones_like(contact_ok, dtype=torch.bool)
+        align_ok = torch.ones_like(contact_ok, dtype=torch.bool)
 
     door: Articulation = env.scene[handle_joint_cfg.name]
     jids = handle_joint_cfg.joint_ids
@@ -1310,17 +949,19 @@ def stall_penalty_after_grasp_pos(
     else:
         bad_depth = torch.clamp((float(stall_pos) - handle_pos) / float(pos_scale), min=0.0)
 
-    bad = phase & grace_ok & contact_ok
+    bad = phase & grace_ok & contact_ok & near_ok & align_ok
     return -float(penalty) * bad.float() * torch.tanh(bad_depth)
 
 def anti_release_after_press_to_open(
     env: "ManagerBasedRLEnv",
     handle_joint_cfg: SceneEntityCfg,
     door_joint_cfg: SceneEntityCfg,
-    gripper_cfg: SceneEntityCfg,
+    gripper_cfg: SceneEntityCfg | None = None,
+    hand_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["gripper_grasp_center"]),
     handle_cfg: SceneEntityCfg | None = None,
     left_finger_cfg: SceneEntityCfg | None = None,
     right_finger_cfg: SceneEntityCfg | None = None,
+    contact_sensor_name: str = "hook_contact",
     left_sensor_name: str = "left_finger_contact",
     right_sensor_name: str = "right_finger_contact",
     # --- keep gate ---
@@ -1329,7 +970,16 @@ def anti_release_after_press_to_open(
     open_width: float = 0.09,
     min_closedness: float = 0.25,
     distance_threshold: float = 0.13,
+    ee_offset_pos: tuple[float, float, float] = (0.0, 0.0, 0.0),
     handle_offset_h: tuple[float, float, float] = (-0.08, 0.04, 0.01),
+    hook_approach_axis_hand: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    hook_mouth_axis_hand: tuple[float, float, float] = (0.0, 1.0, 0.0),
+    handle_approach_axis: int = 1,
+    expected_approach_sign: float = 1.0,
+    world_down_axis: tuple[float, float, float] = (0.0, 0.0, -1.0),
+    approach_weight: float = 0.70,
+    mouth_down_weight: float = 0.30,
+    align_threshold: float = 0.30,
     # --- phase start ---
     handle_start_pos: float = 0.0,
     handle_threshold: float = -0.3,
@@ -1357,27 +1007,38 @@ def anti_release_after_press_to_open(
         return torch.zeros(N, device=device)
 
     # ------------------------------------------------------------
-    # 1) keep gate = contact + close + near grasp point when geometry cfgs are provided
+    # 1) keep gate = hook/handle contact + grasp-center near target + hook pose
     # ------------------------------------------------------------
-    fL = filtered_contact_force_norm(env.scene[left_sensor_name])
-    fR = filtered_contact_force_norm(env.scene[right_sensor_name])
-    contact_ok = (torch.maximum(fL, fR) > contact_threshold) if require_any_contact else (torch.minimum(fL, fR) > contact_threshold)
+    force = filtered_contact_force_norm(env.scene[contact_sensor_name])
+    contact_ok = force > float(contact_threshold)
 
-    _, closedness = _gripper_width_and_closedness(env, gripper_cfg, open_width=open_width)
-    close_ok = closedness > min_closedness
-    if handle_cfg is not None and left_finger_cfg is not None and right_finger_cfg is not None:
-        dist = fingertip_mid_to_handle_grasp_point_distance(
+    if handle_cfg is not None:
+        dist = ee_tcp_to_handle_grasp_point_distance(
             env,
-            left_finger_cfg,
-            right_finger_cfg,
+            hand_cfg,
             handle_cfg,
+            ee_offset_pos=ee_offset_pos,
             handle_offset_h=handle_offset_h,
         )
         near_ok = dist < float(distance_threshold)
+        align = align_grasp_pose_v2(
+            env=env,
+            handle_cfg=handle_cfg,
+            hand_cfg=hand_cfg,
+            hook_approach_axis_hand=hook_approach_axis_hand,
+            hook_mouth_axis_hand=hook_mouth_axis_hand,
+            handle_approach_axis=handle_approach_axis,
+            expected_approach_sign=expected_approach_sign,
+            world_down_axis=world_down_axis,
+            approach_weight=approach_weight,
+            mouth_down_weight=mouth_down_weight,
+        )
+        align_ok = align >= float(align_threshold)
     else:
         dist = torch.zeros(N, device=device)
         near_ok = torch.ones(N, dtype=torch.bool, device=device)
-    keep_ok = contact_ok & close_ok & near_ok
+        align_ok = torch.ones(N, dtype=torch.bool, device=device)
+    keep_ok = contact_ok & near_ok & align_ok
 
     # ------------------------------------------------------------
     # 2) handle progress
@@ -1477,17 +1138,6 @@ def anti_release_after_press_to_open(
     auto_open = phase & (~keep_ok) & (door_open > float(push_enter_open))
     auto_pen = float(auto_open_penalty) * auto_open.float()
 
-    if not hasattr(env, "extras") or env.extras is None:
-        env.extras = {}
-    if "log" not in env.extras:
-        env.extras["log"] = {}
-    env.extras["log"]["keep_after_press/keep_ok_ratio"] = keep_ok.float().mean().detach()
-    env.extras["log"]["keep_after_press/contact_ok_ratio"] = contact_ok.float().mean().detach()
-    env.extras["log"]["keep_after_press/close_ok_ratio"] = close_ok.float().mean().detach()
-    env.extras["log"]["keep_after_press/near_ok_ratio"] = near_ok.float().mean().detach()
-    env.extras["log"]["keep_after_press/dist_mean"] = dist.mean().detach()
-    env.extras["log"]["keep_after_press/phase_ratio"] = phase.float().mean().detach()
-
     return hold_rew - event_pen - lost_pen - auto_pen
 
 
@@ -1495,15 +1145,29 @@ def anti_release_after_press_to_open(
 def unlock_handle_progress_mixed(
     env: "ManagerBasedRLEnv",
     handle_joint_cfg: SceneEntityCfg,
-    gripper_cfg: SceneEntityCfg,
+    gripper_cfg: SceneEntityCfg | None = None,
+    hand_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["gripper_grasp_center"]),
+    handle_cfg: SceneEntityCfg | None = None,
+    contact_sensor_name: str = "hook_contact",
     left_sensor_name: str = "left_finger_contact",
     right_sensor_name: str = "right_finger_contact",
     # --- gate ---
-    contact_threshold: float = 0.5,
+    contact_threshold: float = 0.25,
     require_any_contact: bool = True,
     open_width: float = 0.09,
     min_closedness: float = 0.20,
     require_grasp_success: bool = False,
+    distance_threshold: float = 0.12,
+    ee_offset_pos: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    handle_offset_h: tuple[float, float, float] = (-0.08, 0.04, 0.01),
+    hook_approach_axis_hand: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    hook_mouth_axis_hand: tuple[float, float, float] = (0.0, 1.0, 0.0),
+    handle_approach_axis: int = 1,
+    expected_approach_sign: float = 1.0,
+    world_down_axis: tuple[float, float, float] = (0.0, 0.0, -1.0),
+    approach_weight: float = 0.70,
+    mouth_down_weight: float = 0.30,
+    align_threshold: float = 0.30,
     # --- progress definition ---
     handle_start_pos: float = 0.0,
     reward_stop_pos: float = -0.30,
@@ -1562,18 +1226,35 @@ def unlock_handle_progress_mixed(
         prog = torch.clamp(prog, 0.0, 1.0)
 
     # ------------------------------------------------------------
-    # 3) gate: filtered contact + closedness (+ optional grasp_success latch)
+    # 3) gate: hook/handle contact + grasp-center near target + hook pose
     # ------------------------------------------------------------
-    fL = filtered_contact_force_norm(env.scene[left_sensor_name])
-    fR = filtered_contact_force_norm(env.scene[right_sensor_name])
-    contact_ok = (
-        (torch.maximum(fL, fR) > contact_threshold)
-        if require_any_contact
-        else (torch.minimum(fL, fR) > contact_threshold)
-    )
-
-    _, closedness = _gripper_width_and_closedness(env, gripper_cfg, open_width=open_width)
-    close_ok = closedness > min_closedness
+    force = filtered_contact_force_norm(env.scene[contact_sensor_name])
+    contact_ok = force > float(contact_threshold)
+    if handle_cfg is not None:
+        dist = ee_tcp_to_handle_grasp_point_distance(
+            env,
+            hand_cfg,
+            handle_cfg,
+            ee_offset_pos=ee_offset_pos,
+            handle_offset_h=handle_offset_h,
+        )
+        near_ok = dist < float(distance_threshold)
+        align = align_grasp_pose_v2(
+            env=env,
+            handle_cfg=handle_cfg,
+            hand_cfg=hand_cfg,
+            hook_approach_axis_hand=hook_approach_axis_hand,
+            hook_mouth_axis_hand=hook_mouth_axis_hand,
+            handle_approach_axis=handle_approach_axis,
+            expected_approach_sign=expected_approach_sign,
+            world_down_axis=world_down_axis,
+            approach_weight=approach_weight,
+            mouth_down_weight=mouth_down_weight,
+        )
+        align_ok = align >= float(align_threshold)
+    else:
+        near_ok = torch.ones_like(contact_ok, dtype=torch.bool)
+        align_ok = torch.ones_like(contact_ok, dtype=torch.bool)
 
     if require_grasp_success:
         if hasattr(env, "_grasp_success_given"):
@@ -1583,7 +1264,7 @@ def unlock_handle_progress_mixed(
     else:
         grasp_ok = torch.ones_like(contact_ok, dtype=torch.bool)
 
-    gate = contact_ok & close_ok & grasp_ok
+    gate = contact_ok & near_ok & align_ok & grasp_ok
 
     # ------------------------------------------------------------
     # 4) robust reset detection
@@ -1651,113 +1332,6 @@ def unlock_handle_progress_mixed(
     rew = gate.float() * torch.clamp(rew, -float(clip), float(clip))
     return rew
 
-
-
-def unlock_success_bonus(
-    env: "ManagerBasedRLEnv",
-    handle_joint_cfg: SceneEntityCfg,
-    bonus: float = 30.0,
-    handle_threshold: float = -0.3,
-    less_than: bool = True,
-    hold_steps: int = 3,
-    # ---- light gate (match unlock_progress_delta style) ----
-    gripper_cfg: SceneEntityCfg | None = None,
-    left_sensor_name: str = "left_finger_contact",
-    right_sensor_name: str = "right_finger_contact",
-    contact_threshold: float = 0.5,
-    require_any_contact: bool = True,
-    open_width: float = 0.08,
-    min_closedness: float = 0.30,
-    require_gate: bool = True,
-    require_grasp_success: bool = True,
-) -> torch.Tensor:
-    door: Articulation = env.scene[handle_joint_cfg.name]
-    jids = handle_joint_cfg.joint_ids
-    handle_pos = door.data.joint_pos[:, jids[0]] if len(jids) == 1 else door.data.joint_pos[:, jids].mean(dim=-1)
-
-    unlocked = (handle_pos < handle_threshold) if less_than else (handle_pos > handle_threshold)
-
-    # ---- light gate: filtered contact + closedness ----
-    if require_gate and (gripper_cfg is not None):
-        fL = filtered_contact_force_norm(env.scene[left_sensor_name])
-        fR = filtered_contact_force_norm(env.scene[right_sensor_name])
-        contact_ok = (torch.maximum(fL, fR) > contact_threshold) if require_any_contact else (torch.minimum(fL, fR) > contact_threshold)
-
-        _, closedness = _gripper_width_and_closedness(env, gripper_cfg, open_width=open_width)
-        close_ok = closedness > min_closedness
-        gate_ok = contact_ok & close_ok
-    else:
-        gate_ok = torch.ones_like(unlocked, dtype=torch.bool)
-
-    # Require episode-level grasp_success latch first to avoid accidental unlock triggers.
-    if require_grasp_success:
-        if hasattr(env, "_grasp_success_given"):
-            grasp_ok = env._grasp_success_given.to(dtype=torch.bool)
-        else:
-            grasp_ok = torch.zeros_like(unlocked, dtype=torch.bool)
-    else:
-        grasp_ok = torch.ones_like(unlocked, dtype=torch.bool)
-
-    # sustained + one-shot: require `hold_steps` consecutive steps of
-    # (grasp_success_latched & unlocked & existing_gate)
-    good = grasp_ok & unlocked & gate_ok
-
-    N = handle_pos.shape[0]
-    device = handle_pos.device
-    if (not hasattr(env, "_unlock_success_counter")) or (env._unlock_success_counter.shape[0] != N):
-        env._unlock_success_counter = torch.zeros(N, device=device, dtype=torch.int32)
-    if (not hasattr(env, "_unlock_success_given")) or (env._unlock_success_given.shape[0] != N):
-        env._unlock_success_given = torch.zeros(N, device=device, dtype=torch.bool)
-
-    # ---- robust reset detection ----
-    reset_mask = None
-
-    # 1) 优先用 reset_buf
-    if hasattr(env, "reset_buf"):
-        try:
-            reset_mask = env.reset_buf.to(dtype=torch.bool)
-        except Exception:
-            reset_mask = None
-
-    # 2) fallback: 用 episode_length 的“回绕”检测 reset
-    if reset_mask is None and hasattr(env, "episode_length_buf"):
-        if (not hasattr(env, "_prev_ep_len_unlock_success")) or (env._prev_ep_len_unlock_success.shape[0] != N):
-            env._prev_ep_len_unlock_success = env.episode_length_buf.clone()
-
-        reset_mask = (env.episode_length_buf < env._prev_ep_len_unlock_success) | (env.episode_length_buf == 0)
-        env._prev_ep_len_unlock_success = env.episode_length_buf.clone()
-
-    if reset_mask is not None:
-        env._unlock_success_counter = torch.where(
-            reset_mask, torch.zeros_like(env._unlock_success_counter), env._unlock_success_counter
-        )
-        env._unlock_success_given = torch.where(
-            reset_mask, torch.zeros_like(env._unlock_success_given), env._unlock_success_given
-        )
-
-    env._unlock_success_counter = torch.where(
-        good, env._unlock_success_counter + 1, torch.zeros_like(env._unlock_success_counter)
-    )
-    success_now = env._unlock_success_counter >= int(max(1, hold_steps))
-
-    give = success_now & (~env._unlock_success_given)
-    env._unlock_success_given = env._unlock_success_given | give
-
-    # ---- archive push for staged reset (unlock) ----
-    idx = torch.nonzero(give).squeeze(-1)
-    if idx.numel() > 0:
-        from .stage import push_archive_from_env
-        push_archive_from_env(
-            env=env,
-            name="_archive_unlock",
-            env_ids=idx,
-            cap=512,
-            robot_cfg=SceneEntityCfg("robot"),
-            door_cfg=SceneEntityCfg("door"),
-            store_unlock_flag=True,
-        )
-
-    return give.float() * float(bonus)
 
 
 def push_door_progress_after_unlock(
@@ -1992,152 +1566,34 @@ def physical_unlock_transition_bonus(
     return reward
 
 
-def release_after_unlock_failure(
-    env: "ManagerBasedRLEnv",
-    door_joint_cfg: SceneEntityCfg,
-    handle_cfg: SceneEntityCfg,
-    left_finger_cfg: SceneEntityCfg,
-    right_finger_cfg: SceneEntityCfg,
-    gripper_cfg: SceneEntityCfg,
-    left_sensor_name: str = "left_finger_contact",
-    right_sensor_name: str = "right_finger_contact",
-    contact_threshold: float = 0.25,
-    require_any_contact: bool = False,
-    open_width: float = 0.09,
-    min_closedness: float = 0.35,
-    distance_threshold: float = 0.13,
-    handle_offset_h: tuple[float, float, float] = (-0.08, 0.04, 0.01),
-    door_closed_pos: float = 0.0,
-    door_open_sign: float = 1.0,
-    door_open_threshold: float = 0.35,
-    fail_steps: int = 30,
-    after_unlock_grace_steps: int = 10,
-) -> torch.Tensor:
-    N = env.num_envs
-    device = env.device
-
-    door: Articulation = env.scene[door_joint_cfg.name]
-    djids = door_joint_cfg.joint_ids
-    door_pos = door.data.joint_pos[:, djids[0]] if len(djids) == 1 else door.data.joint_pos[:, djids].mean(dim=-1)
-    door_open = float(door_open_sign) * (door_pos - float(door_closed_pos))
-    door_open = torch.clamp(door_open, min=0.0)
-
-    fL = filtered_contact_force_norm(env.scene[left_sensor_name])
-    fR = filtered_contact_force_norm(env.scene[right_sensor_name])
-    contact_ok = (
-        (torch.maximum(fL, fR) > float(contact_threshold))
-        if require_any_contact
-        else (torch.minimum(fL, fR) > float(contact_threshold))
-    )
-
-    _, closedness = _gripper_width_and_closedness(env, gripper_cfg, open_width=open_width)
-    close_ok = closedness > float(min_closedness)
-
-    dist = fingertip_mid_to_handle_grasp_point_distance(
-        env,
-        left_finger_cfg,
-        right_finger_cfg,
-        handle_cfg,
-        handle_offset_h=handle_offset_h,
-    )
-    near_ok = dist < float(distance_threshold)
-    keep_ok = contact_ok & close_ok & near_ok
-
-    if hasattr(env, "_unlock_success_given"):
-        unlocked = env._unlock_success_given.to(dtype=torch.bool)
-    else:
-        unlocked = _physical_door_unlocked(env)
-    door_not_open = door_open < float(door_open_threshold)
-
-    reset_mask = None
-    if hasattr(env, "reset_buf"):
-        try:
-            reset_mask = env.reset_buf.to(dtype=torch.bool)
-        except Exception:
-            reset_mask = None
-    if reset_mask is None and hasattr(env, "episode_length_buf"):
-        if (not hasattr(env, "_prev_ep_len_release_after_unlock")) or (
-            env._prev_ep_len_release_after_unlock.shape[0] != N
-        ):
-            env._prev_ep_len_release_after_unlock = env.episode_length_buf.clone()
-        reset_mask = (
-            (env.episode_length_buf < env._prev_ep_len_release_after_unlock)
-            | (env.episode_length_buf == 0)
-        )
-        env._prev_ep_len_release_after_unlock = env.episode_length_buf.clone()
-
-    if (not hasattr(env, "_release_after_unlock_counter")) or (
-        env._release_after_unlock_counter.shape[0] != N
-    ):
-        env._release_after_unlock_counter = torch.zeros(N, dtype=torch.int32, device=device)
-    if (not hasattr(env, "_release_after_unlock_grace")) or (
-        env._release_after_unlock_grace.shape[0] != N
-    ):
-        env._release_after_unlock_grace = torch.zeros(N, dtype=torch.int32, device=device)
-    if (not hasattr(env, "_prev_release_after_unlock_unlocked")) or (
-        env._prev_release_after_unlock_unlocked.shape[0] != N
-    ):
-        env._prev_release_after_unlock_unlocked = torch.zeros(N, dtype=torch.bool, device=device)
-
-    newly_unlocked = unlocked & (~env._prev_release_after_unlock_unlocked)
-    env._prev_release_after_unlock_unlocked = unlocked
-
-    env._release_after_unlock_grace = torch.where(
-        newly_unlocked,
-        torch.full_like(env._release_after_unlock_grace, int(after_unlock_grace_steps)),
-        torch.clamp(env._release_after_unlock_grace - 1, min=0),
-    )
-
-    if reset_mask is not None:
-        env._release_after_unlock_counter = torch.where(
-            reset_mask, torch.zeros_like(env._release_after_unlock_counter), env._release_after_unlock_counter
-        )
-        env._release_after_unlock_grace = torch.where(
-            reset_mask, torch.zeros_like(env._release_after_unlock_grace), env._release_after_unlock_grace
-        )
-        env._prev_release_after_unlock_unlocked = torch.where(
-            reset_mask, torch.zeros_like(env._prev_release_after_unlock_unlocked), env._prev_release_after_unlock_unlocked
-        )
-
-    bad = unlocked & door_not_open & (env._release_after_unlock_grace == 0) & (~keep_ok)
-    env._release_after_unlock_counter = torch.where(
-        bad,
-        env._release_after_unlock_counter + 1,
-        torch.zeros_like(env._release_after_unlock_counter),
-    )
-    done = env._release_after_unlock_counter >= int(max(1, fail_steps))
-
-    if not hasattr(env, "extras") or env.extras is None:
-        env.extras = {}
-    if "log" not in env.extras:
-        env.extras["log"] = {}
-    env.extras["log"]["termination/release_after_unlock_bad_ratio"] = bad.float().mean().detach()
-    env.extras["log"]["termination/release_after_unlock_counter_mean"] = (
-        env._release_after_unlock_counter.float().mean().detach()
-    )
-    env.extras["log"]["termination/release_after_unlock_done_ratio"] = done.float().mean().detach()
-    env.extras["log"]["termination/release_after_unlock_keep_ok_ratio"] = keep_ok.float().mean().detach()
-    env.extras["log"]["termination/release_after_unlock_grace_mean"] = (
-        env._release_after_unlock_grace.float().mean().detach()
-    )
-
-    return done
-
-
 def push_door_progress_after_unlock_success_only(
     env: "ManagerBasedRLEnv",
     door_joint_cfg: SceneEntityCfg,
     # 只在 unlock_success 之后生效
     require_unlock_success_latch: bool = True,
-    # gate: filtered contact + closedness, same style as unlock process
+    # gate: hook/handle contact + grasp-center near target + hook pose
     gripper_cfg: SceneEntityCfg | None = None,
+    hand_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names=["gripper_grasp_center"]),
+    handle_cfg: SceneEntityCfg | None = None,
+    contact_sensor_name: str = "hook_contact",
     left_sensor_name: str = "left_finger_contact",
     right_sensor_name: str = "right_finger_contact",
-    contact_threshold: float = 0.5,
+    contact_threshold: float = 0.25,
     require_any_contact: bool = True,
     open_width: float = 0.09,
     min_closedness: float = 0.50,
     require_gate: bool = True,
+    distance_threshold: float = 0.14,
+    ee_offset_pos: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    handle_offset_h: tuple[float, float, float] = (-0.08, 0.04, 0.01),
+    hook_approach_axis_hand: tuple[float, float, float] = (1.0, 0.0, 0.0),
+    hook_mouth_axis_hand: tuple[float, float, float] = (0.0, 1.0, 0.0),
+    handle_approach_axis: int = 1,
+    expected_approach_sign: float = 1.0,
+    world_down_axis: tuple[float, float, float] = (0.0, 0.0, -1.0),
+    approach_weight: float = 0.70,
+    mouth_down_weight: float = 0.30,
+    align_threshold: float = 0.20,
     # 门开度定义
     door_closed_pos: float = 0.0,
     door_open_sign: float = 1.0,
@@ -2173,17 +1629,35 @@ def push_door_progress_after_unlock_success_only(
     else:
         gate = torch.ones(N, dtype=torch.bool, device=device)
 
-    if require_gate and (gripper_cfg is not None):
-        fL = filtered_contact_force_norm(env.scene[left_sensor_name])
-        fR = filtered_contact_force_norm(env.scene[right_sensor_name])
-        contact_ok = (
-            (torch.maximum(fL, fR) > contact_threshold)
-            if require_any_contact
-            else (torch.minimum(fL, fR) > contact_threshold)
-        )
-        _, closedness = _gripper_width_and_closedness(env, gripper_cfg, open_width=open_width)
-        close_ok = closedness > min_closedness
-        gate = gate & contact_ok & close_ok
+    if require_gate:
+        force = filtered_contact_force_norm(env.scene[contact_sensor_name])
+        contact_ok = force > float(contact_threshold)
+        if handle_cfg is not None:
+            dist = ee_tcp_to_handle_grasp_point_distance(
+                env,
+                hand_cfg,
+                handle_cfg,
+                ee_offset_pos=ee_offset_pos,
+                handle_offset_h=handle_offset_h,
+            )
+            near_ok = dist < float(distance_threshold)
+            align = align_grasp_pose_v2(
+                env=env,
+                handle_cfg=handle_cfg,
+                hand_cfg=hand_cfg,
+                hook_approach_axis_hand=hook_approach_axis_hand,
+                hook_mouth_axis_hand=hook_mouth_axis_hand,
+                handle_approach_axis=handle_approach_axis,
+                expected_approach_sign=expected_approach_sign,
+                world_down_axis=world_down_axis,
+                approach_weight=approach_weight,
+                mouth_down_weight=mouth_down_weight,
+            )
+            align_ok = align >= float(align_threshold)
+        else:
+            near_ok = torch.ones_like(contact_ok, dtype=torch.bool)
+            align_ok = torch.ones_like(contact_ok, dtype=torch.bool)
+        gate = gate & contact_ok & near_ok & align_ok
 
     # -----------------------------
     # robust reset detection
@@ -2244,6 +1718,8 @@ def _weighted_reward(
     weight: float,
     params: dict | None,
 ) -> torch.Tensor:
+    if float(weight) == 0.0:
+        return torch.zeros(env.num_envs, device=env.device)
     if params is None:
         params = {}
     params = _resolve_nested_scene_entity_cfgs(env, dict(params))
@@ -2277,6 +1753,264 @@ def _log_stage_reward_scalar(env: "ManagerBasedRLEnv", name: str, value: torch.T
     env.extras["log"][f"stage_gated_reward/{name}"] = value.mean().detach()
 
 
+def _hook_ee_and_handle_points_w(
+    env: "ManagerBasedRLEnv",
+    ee_cfg: SceneEntityCfg,
+    handle_cfg: SceneEntityCfg,
+    handle_offset_h: tuple[float, float, float] = (-0.08, 0.04, 0.01),
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return EE, handle-origin, grasp-target positions and handle orientation in world frame."""
+    cache = getattr(env, "_stage0_reward_step_cache", None)
+    key = (
+        "points", ee_cfg.name, repr(ee_cfg.body_ids), handle_cfg.name,
+        repr(handle_cfg.body_ids), tuple(float(x) for x in handle_offset_h),
+    )
+    if cache is not None and key in cache:
+        return cache[key]
+    ee_pos_w, _ = _body_pose_w(env, ee_cfg)
+    handle_pos_w, handle_quat_w = _body_pose_w(env, handle_cfg)
+    offset_h = torch.tensor(handle_offset_h, device=env.device, dtype=handle_pos_w.dtype).view(1, 3)
+    target_pos_w = handle_pos_w + quat_rotate(handle_quat_w, offset_h.expand(env.num_envs, 3))
+    result = (ee_pos_w, handle_pos_w, target_pos_w, handle_quat_w)
+    if cache is not None:
+        cache[key] = result
+    return result
+
+
+def _hook_target_point_w(env, handle_cfg, handle_offset_h):
+    cache = getattr(env, "_stage0_reward_step_cache", None)
+    key = ("target", handle_cfg.name, repr(handle_cfg.body_ids), tuple(float(x) for x in handle_offset_h))
+    if cache is not None and key in cache:
+        return cache[key]
+    handle_pos_w, handle_quat_w = _body_pose_w(env, handle_cfg)
+    offset = torch.as_tensor(handle_offset_h, device=env.device, dtype=handle_pos_w.dtype).view(1, 3)
+    target = handle_pos_w + quat_rotate(handle_quat_w, offset.expand(env.num_envs, 3))
+    if cache is not None:
+        cache[key] = target
+    return target
+
+
+def _hook_target_distance(env, ee_cfg, handle_cfg, handle_offset_h):
+    cache = getattr(env, "_stage0_reward_step_cache", None)
+    key = (
+        "target_dist", ee_cfg.name, repr(ee_cfg.body_ids), handle_cfg.name,
+        repr(handle_cfg.body_ids), tuple(float(x) for x in handle_offset_h),
+    )
+    if cache is not None and key in cache:
+        return cache[key]
+    ee_pos_w, _, target_pos_w, _ = _hook_ee_and_handle_points_w(env, ee_cfg, handle_cfg, handle_offset_h)
+    dist = torch.linalg.norm(ee_pos_w - target_pos_w, dim=-1)
+    if cache is not None:
+        cache[key] = dist
+    return dist
+
+
+def _hook_contact_force_norm(env, contact_sensor_name):
+    cache = getattr(env, "_stage0_reward_step_cache", None)
+    key = ("contact_force", contact_sensor_name)
+    if cache is not None and key in cache:
+        return cache[key]
+    value = filtered_contact_force_norm(env.scene[contact_sensor_name])
+    if cache is not None:
+        cache[key] = value
+    return value
+
+
+def base_to_pick_stance(
+    env: "ManagerBasedRLEnv",
+    robot_cfg: SceneEntityCfg,
+    handle_cfg: SceneEntityCfg,
+    handle_offset_h: tuple[float, float, float] = (-0.08, 0.04, 0.01),
+    stance_offset_w: tuple[float, float, float] = (-0.3, 0.3, -1.0),
+    std: float = 0.6,
+) -> torch.Tensor:
+    """Exponential XY-distance reward from the base to a stance near the hook grasp target."""
+    robot: Articulation = env.scene[robot_cfg.name]
+    target_pos_w = _hook_target_point_w(env, handle_cfg, handle_offset_h)
+    stance_offset = torch.tensor(stance_offset_w, device=env.device, dtype=target_pos_w.dtype).view(1, 3)
+    stance_pos_w = target_pos_w + stance_offset
+    dist_xy = torch.linalg.norm(robot.data.root_pos_w[:, :2] - stance_pos_w[:, :2], dim=-1)
+    return torch.exp(-torch.square(dist_xy / max(float(std), 1.0e-6)))
+
+
+def ee_to_object(
+    env: "ManagerBasedRLEnv",
+    ee_cfg: SceneEntityCfg,
+    handle_cfg: SceneEntityCfg,
+    handle_offset_h: tuple[float, float, float] = (-0.08, 0.04, 0.01),
+    std: float = 0.15,
+) -> torch.Tensor:
+    """Exponential 3-D distance reward from hook center to the handle-offset grasp target."""
+    dist = _hook_target_distance(env, ee_cfg, handle_cfg, handle_offset_h)
+    return torch.exp(-torch.square(dist / max(float(std), 1.0e-6)))
+
+
+def _double_scale_distance_reward(
+    dist: torch.Tensor,
+    k_fast: float = 2.0,
+    k_slow: float = 0.5,
+    fast_gain: float = 25.0,
+    slow_gain: float = 1.0,
+) -> torch.Tensor:
+    return float(k_fast) * torch.exp(-float(fast_gain) * torch.square(dist)) + float(k_slow) * torch.exp(
+        -float(slow_gain) * torch.square(dist)
+    )
+
+
+def ee_to_target_shaped(
+    env: "ManagerBasedRLEnv",
+    ee_cfg: SceneEntityCfg,
+    handle_cfg: SceneEntityCfg,
+    handle_offset_h: tuple[float, float, float] = (-0.08, 0.04, 0.01),
+    k_fast: float = 2.0,
+    k_slow: float = 0.5,
+    fast_gain: float = 25.0,
+    slow_gain: float = 1.0,
+) -> torch.Tensor:
+    """Two-scale shaping around the hook grasp target rather than the handle origin."""
+    dist = _hook_target_distance(env, ee_cfg, handle_cfg, handle_offset_h)
+    return _double_scale_distance_reward(dist, k_fast, k_slow, fast_gain, slow_gain)
+
+
+def ee_to_pick_progress(
+    env: "ManagerBasedRLEnv",
+    ee_cfg: SceneEntityCfg,
+    handle_cfg: SceneEntityCfg,
+    handle_offset_h: tuple[float, float, float] = (-0.08, 0.04, 0.01),
+    max_progress: float = 0.25,
+) -> torch.Tensor:
+    """Signed step-to-step reduction in EE-to-grasp-target distance."""
+    dist = _hook_target_distance(env, ee_cfg, handle_cfg, handle_offset_h)
+    prev = getattr(env, "_stage0_prev_ee_pick_dist", None)
+    if prev is None or prev.shape != (env.num_envs,):
+        prev = torch.full_like(dist, float("nan"))
+        env._stage0_prev_ee_pick_dist = prev
+    reset_mask = _base_reset_mask(env, "stage0_ee_pick_progress", env.num_envs)
+    progress = torch.where(torch.isfinite(prev) & (~reset_mask), prev - dist, torch.zeros_like(dist))
+    prev.copy_(dist.detach())
+    return torch.clamp(progress, min=-float(max_progress), max=float(max_progress))
+
+
+def pick_reached_success(
+    env: "ManagerBasedRLEnv",
+    ee_cfg: SceneEntityCfg,
+    handle_cfg: SceneEntityCfg,
+    handle_offset_h: tuple[float, float, float] = (-0.08, 0.04, 0.01),
+    distance_threshold: float = 0.05,
+) -> torch.Tensor:
+    """Dense per-step indicator that the hook center is within the target radius."""
+    return (_hook_target_distance(env, ee_cfg, handle_cfg, handle_offset_h) < float(distance_threshold)).float()
+
+
+def ee_object_contact(
+    env: "ManagerBasedRLEnv",
+    ee_cfg: SceneEntityCfg,
+    handle_cfg: SceneEntityCfg,
+    contact_sensor_name: str = "hook_contact",
+    handle_offset_h: tuple[float, float, float] = (-0.08, 0.04, 0.01),
+    distance_threshold: float = 0.05,
+    contact_threshold: float = 0.25,
+) -> torch.Tensor:
+    """Reward either reaching the grasp-point neighborhood or filtered hook-handle contact."""
+    near = _hook_target_distance(env, ee_cfg, handle_cfg, handle_offset_h) < float(distance_threshold)
+    contact = _hook_contact_force_norm(env, contact_sensor_name) > float(contact_threshold)
+    return (near | contact).float()
+
+
+def ee_to_object_shaped(
+    env: "ManagerBasedRLEnv",
+    ee_cfg: SceneEntityCfg,
+    handle_cfg: SceneEntityCfg,
+    k_fast: float = 2.0,
+    k_slow: float = 0.5,
+    fast_gain: float = 25.0,
+    slow_gain: float = 1.0,
+) -> torch.Tensor:
+    """Two-scale distance shaping around the physical handle origin."""
+    ee_pos_w, handle_pos_w, _, _ = _hook_ee_and_handle_points_w(env, ee_cfg, handle_cfg)
+    dist = torch.linalg.norm(ee_pos_w - handle_pos_w, dim=-1)
+    return _double_scale_distance_reward(dist, k_fast, k_slow, fast_gain, slow_gain)
+
+
+def _hook_grasp_quality(
+    env: "ManagerBasedRLEnv",
+    ee_cfg: SceneEntityCfg,
+    handle_cfg: SceneEntityCfg,
+    contact_sensor_name: str,
+    handle_offset_h: tuple[float, float, float],
+    distance_threshold: float,
+    contact_threshold: float,
+    align_threshold: float,
+    align_params: dict,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    cache = getattr(env, "_stage0_reward_step_cache", None)
+    key = (
+        "grasp_quality", ee_cfg.name, repr(ee_cfg.body_ids), handle_cfg.name, repr(handle_cfg.body_ids),
+        contact_sensor_name, tuple(float(x) for x in handle_offset_h), float(distance_threshold),
+        float(contact_threshold), float(align_threshold), repr(sorted(align_params.items())),
+    )
+    if cache is not None and key in cache:
+        return cache[key]
+    dist = _hook_target_distance(env, ee_cfg, handle_cfg, handle_offset_h)
+    near_score = torch.exp(-torch.square(dist / max(float(distance_threshold), 1.0e-6)))
+    align_score = align_grasp_pose_v2(env=env, hand_cfg=ee_cfg, handle_cfg=handle_cfg, **align_params)
+    contact_score = torch.clamp(
+        _hook_contact_force_norm(env, contact_sensor_name) / max(float(contact_threshold), 1.0e-6), 0.0, 1.0
+    )
+    quality = near_score * align_score * contact_score
+    stable = (dist < float(distance_threshold)) & (align_score >= float(align_threshold)) & (contact_score >= 1.0)
+    result = (quality, stable)
+    if cache is not None:
+        cache[key] = result
+    return result
+
+
+def grasping_success_shaped(
+    env: "ManagerBasedRLEnv",
+    ee_cfg: SceneEntityCfg,
+    handle_cfg: SceneEntityCfg,
+    contact_sensor_name: str = "hook_contact",
+    handle_offset_h: tuple[float, float, float] = (-0.08, 0.04, 0.01),
+    distance_threshold: float = 0.10,
+    contact_threshold: float = 0.25,
+    align_threshold: float = 0.30,
+    **align_params,
+) -> torch.Tensor:
+    """Continuous hook grasp quality: proximity × pose alignment × filtered contact."""
+    quality, _ = _hook_grasp_quality(
+        env, ee_cfg, handle_cfg, contact_sensor_name, handle_offset_h, distance_threshold,
+        contact_threshold, align_threshold, align_params
+    )
+    return quality
+
+
+def grasp_stable_progress(
+    env: "ManagerBasedRLEnv",
+    ee_cfg: SceneEntityCfg,
+    handle_cfg: SceneEntityCfg,
+    contact_sensor_name: str = "hook_contact",
+    handle_offset_h: tuple[float, float, float] = (-0.08, 0.04, 0.01),
+    distance_threshold: float = 0.10,
+    contact_threshold: float = 0.25,
+    align_threshold: float = 0.30,
+    stable_time_s: float = 0.08,
+    **align_params,
+) -> torch.Tensor:
+    """Normalized consecutive-valid-grasp duration, reset immediately when grasp quality is lost."""
+    _, stable = _hook_grasp_quality(
+        env, ee_cfg, handle_cfg, contact_sensor_name, handle_offset_h, distance_threshold,
+        contact_threshold, align_threshold, align_params
+    )
+    counter = getattr(env, "_stage0_hook_grasp_stable_counter", None)
+    if counter is None or counter.shape != (env.num_envs,):
+        counter = torch.zeros(env.num_envs, device=env.device, dtype=torch.int32)
+        env._stage0_hook_grasp_stable_counter = counter
+    reset_mask = _base_reset_mask(env, "stage0_hook_grasp_stable", env.num_envs)
+    counter.copy_(torch.where(stable & (~reset_mask), counter + 1, torch.zeros_like(counter)))
+    required_steps = max(1, int(math.ceil(float(stable_time_s) / float(env.step_dt))))
+    return torch.clamp(counter.float() / float(required_steps), 0.0, 1.0)
+
+
 def _read_handle_unlock_flag(
     env: "ManagerBasedRLEnv",
     handle_joint_cfg: SceneEntityCfg | None,
@@ -2298,12 +2032,12 @@ def stage_gated_door_reward(
     enable_stage_gated_reward: bool = True,
     stage0_only_reward: bool = False,
     pre_grasp_cap: float = 1.0,
+    stage0_reward_terms: dict[str, dict] | None = None,
+    grasp_success_term: dict | None = None,
     align_grasp_weight: float = 0.0,
     align_grasp_params: dict | None = None,
     approach_handle_weight: float = 0.0,
     approach_handle_params: dict | None = None,
-    close_when_ready_weight: float = 0.0,
-    close_when_ready_params: dict | None = None,
     grasp_handle_weight: float = 0.0,
     grasp_handle_params: dict | None = None,
     grasp_success_weight: float = 0.0,
@@ -2312,9 +2046,6 @@ def stage_gated_door_reward(
     press_handle_params: dict | None = None,
     keep_handle_after_press_weight: float = 0.0,
     keep_handle_after_press_params: dict | None = None,
-    grasp_quality_keep_weight: float = 2.0,
-    grasp_quality_keep_params: dict | None = None,
-    grasp_quality_gate_floor: float = 0.15,
     stall_after_grasp_weight: float = 0.0,
     stall_after_grasp_params: dict | None = None,
     stall_after_press_weight: float = 0.0,
@@ -2328,21 +2059,27 @@ def stage_gated_door_reward(
 ) -> torch.Tensor:
     """Aggregate DoorBot rewards with explicit stage masks."""
 
-    align_reward = _weighted_reward(align_grasp_pose_v2, env, align_grasp_weight, align_grasp_params)
-    approach_reward = _weighted_reward(approach_handle_inv_square, env, approach_handle_weight, approach_handle_params)
-    close_when_ready_reward = _weighted_reward(
-        close_gripper_shaping_when_ready, env, close_when_ready_weight, close_when_ready_params
-    )
-    grasp_handle_reward_term = _weighted_reward(
-        grasp_handle_reward_preunlock_only, env, grasp_handle_weight, grasp_handle_params
-    )
-
-    stage0_reward = (
-        align_reward
-        + approach_reward
-        + close_when_ready_reward
-        + grasp_handle_reward_term
-    )
+    stage0_components: dict[str, torch.Tensor] = {}
+    if stage0_reward_terms:
+        # All Stage-0 terms below share geometry/alignment/contact tensors for
+        # this reward evaluation only; no cached tensor survives to the next step.
+        env._stage0_reward_step_cache = {}
+        for name, term in stage0_reward_terms.items():
+            stage0_components[name] = _weighted_reward(
+                term["func"], env, term.get("weight", 0.0), term.get("params")
+            )
+        stage0_reward = sum(stage0_components.values(), torch.zeros(env.num_envs, device=env.device))
+        align_reward = torch.zeros_like(stage0_reward)
+        approach_reward = torch.zeros_like(stage0_reward)
+        grasp_handle_reward_term = torch.zeros_like(stage0_reward)
+    else:
+        # Backward-compatible path for older environment configurations.
+        align_reward = _weighted_reward(align_grasp_pose_v2, env, align_grasp_weight, align_grasp_params)
+        approach_reward = _weighted_reward(approach_handle_inv_square, env, approach_handle_weight, approach_handle_params)
+        grasp_handle_reward_term = _weighted_reward(
+            grasp_handle_reward_preunlock_only, env, grasp_handle_weight, grasp_handle_params
+        )
+        stage0_reward = align_reward + approach_reward + grasp_handle_reward_term
 
     if stage0_only_reward:
         zero_reward = torch.zeros_like(stage0_reward)
@@ -2351,7 +2088,6 @@ def stage_gated_door_reward(
 
         _log_stage_reward_scalar(env, "align", align_reward)
         _log_stage_reward_scalar(env, "approach", approach_reward)
-        _log_stage_reward_scalar(env, "close_when_ready", close_when_ready_reward)
         _log_stage_reward_scalar(env, "grasp_handle", grasp_handle_reward_term)
         _log_stage_reward_scalar(env, "press_handle", zero_reward)
         _log_stage_reward_scalar(env, "keep_handle_after_press", zero_reward)
@@ -2366,15 +2102,24 @@ def stage_gated_door_reward(
         _log_stage_reward_scalar(env, "stage0_mask_ratio", one_mask)
         _log_stage_reward_scalar(env, "stage1_mask_ratio", zero_mask)
         _log_stage_reward_scalar(env, "stage2_mask_ratio", zero_mask)
+        for name, value in stage0_components.items():
+            _log_stage_reward_scalar(env, name, value)
 
         return stage0_reward
 
-    if grasp_success_params is None:
-        grasp_success_params = {}
-    grasp_success_call_params = _resolve_nested_scene_entity_cfgs(env, dict(grasp_success_params))
-    if enable_stage_gated_reward:
-        grasp_success_call_params["bonus"] = 0.0
-    grasp_success_reward = float(grasp_success_weight) * grasp_success_bonus(env, **grasp_success_call_params)
+    if grasp_success_term is not None:
+        grasp_success_weight = float(grasp_success_term.get("weight", 0.0))
+        grasp_success_params = grasp_success_term.get("params")
+
+    if float(grasp_success_weight) == 0.0:
+        grasp_success_reward = torch.zeros(env.num_envs, device=env.device)
+    else:
+        if grasp_success_params is None:
+            grasp_success_params = {}
+        grasp_success_call_params = _resolve_nested_scene_entity_cfgs(env, dict(grasp_success_params))
+        if enable_stage_gated_reward:
+            grasp_success_call_params["bonus"] = 0.0
+        grasp_success_reward = float(grasp_success_weight) * grasp_success_bonus(env, **grasp_success_call_params)
 
     if hasattr(env, "_grasp_success_given"):
         grasp_ok = env._grasp_success_given.to(dtype=torch.bool)
@@ -2392,51 +2137,6 @@ def stage_gated_door_reward(
     keep_handle_after_press_reward = _weighted_reward(
         anti_release_after_press_to_open, env, keep_handle_after_press_weight, keep_handle_after_press_params
     )
-    if grasp_quality_keep_params is None:
-        zero = torch.zeros(env.num_envs, dtype=press_handle_reward.dtype, device=env.device)
-        false = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
-        quality_terms = {
-            "active": false,
-            "quality": zero,
-            "near_score": zero,
-            "wrap_score": zero,
-            "open_align": zero,
-            "approach_dot_raw": zero,
-            "approach_align": zero,
-            "pose_score": zero,
-            "contact_score": zero,
-            "contact_ok": false,
-            "balance_score": zero,
-            "closure_score": zero,
-            "closedness": zero,
-            "tcp_dist": zero,
-            "f_left": zero,
-            "f_right": zero,
-            "f_min": zero,
-            "f_max": zero,
-            "closed_no_contact": false,
-            "single_finger": false,
-        }
-        closed_no_contact_penalty = 0.5
-        single_finger_penalty = 0.5
-    else:
-        quality_compute_params = dict(grasp_quality_keep_params)
-        closed_no_contact_penalty = float(quality_compute_params.pop("closed_no_contact_penalty", 0.5))
-        single_finger_penalty = float(quality_compute_params.pop("single_finger_penalty", 0.5))
-        quality_compute_params = _resolve_nested_scene_entity_cfgs(env, quality_compute_params)
-        quality_terms = compute_stage1_grasp_quality(env, **quality_compute_params)
-    grasp_quality = quality_terms["quality"]
-    quality_gate = (
-        float(grasp_quality_gate_floor)
-        + (1.0 - float(grasp_quality_gate_floor)) * grasp_quality
-    ).clamp(0.0, 1.0)
-    grasp_quality_keep_reward_term = float(grasp_quality_keep_weight) * grasp_quality
-    quality_penalty = (
-        -closed_no_contact_penalty * quality_terms["closed_no_contact"].float()
-        -single_finger_penalty * quality_terms["single_finger"].float()
-    )
-    gated_press_handle_reward = press_handle_reward * quality_gate
-
     stall_after_grasp_reward = _weighted_reward(
         stall_penalty_after_grasp_pos, env, stall_after_grasp_weight, stall_after_grasp_params
     )
@@ -2446,21 +2146,17 @@ def stage_gated_door_reward(
     unlock_progress_reward = _weighted_reward(
         unlock_handle_progress_mixed, env, unlock_progress_weight, unlock_progress_params
     )
-    gated_unlock_progress_reward = unlock_progress_reward * quality_gate
 
     push_door_reward = _weighted_reward(
         push_door_progress_after_unlock_success_only, env, push_door_weight, push_door_params
     )
 
     stage1_reward = (
-        (float(pre_grasp_cap) * grasp_quality)
-        + grasp_quality_keep_reward_term
-        + keep_handle_after_press_reward
-        + gated_press_handle_reward
+        keep_handle_after_press_reward
+        + press_handle_reward
         + stall_after_grasp_reward
         + stall_after_press_reward
-        + gated_unlock_progress_reward
-        + quality_penalty
+        + unlock_progress_reward
     )
     stage2_reward = push_door_reward + 0.5 * keep_handle_after_press_reward
 
@@ -2490,19 +2186,14 @@ def stage_gated_door_reward(
 
     _log_stage_reward_scalar(env, "align", align_reward)
     _log_stage_reward_scalar(env, "approach", approach_reward)
-    _log_stage_reward_scalar(env, "close_when_ready", close_when_ready_reward)
     _log_stage_reward_scalar(env, "grasp_handle", grasp_handle_reward_term)
     _log_stage_reward_scalar(env, "press_handle", press_handle_reward)
-    _log_stage_reward_scalar(env, "grasp_quality_keep", grasp_quality_keep_reward_term)
-    _log_stage_reward_scalar(env, "grasp_quality_penalty", quality_penalty)
     _log_stage_reward_scalar(env, "press_handle_raw", press_handle_reward)
-    _log_stage_reward_scalar(env, "press_handle_gated", gated_press_handle_reward)
     _log_stage_reward_scalar(env, "keep_handle_after_press", keep_handle_after_press_reward)
     _log_stage_reward_scalar(env, "stall_after_grasp", stall_after_grasp_reward)
     _log_stage_reward_scalar(env, "stall_after_press", stall_after_press_reward)
     _log_stage_reward_scalar(env, "unlock_progress", unlock_progress_reward)
     _log_stage_reward_scalar(env, "unlock_progress_raw", unlock_progress_reward)
-    _log_stage_reward_scalar(env, "unlock_progress_gated", gated_unlock_progress_reward)
     _log_stage_reward_scalar(env, "unlock_transition", unlock_transition_reward)
     _log_stage_reward_scalar(env, "push_door", push_door_reward)
     _log_stage_reward_scalar(env, "stage0_reward", stage0_reward)
@@ -2511,35 +2202,668 @@ def stage_gated_door_reward(
     _log_stage_reward_scalar(env, "stage0_mask_ratio", stage0_mask.float())
     _log_stage_reward_scalar(env, "stage1_mask_ratio", stage1_mask.float())
     _log_stage_reward_scalar(env, "stage2_mask_ratio", stage2_mask.float())
+    for name, value in stage0_components.items():
+        _log_stage_reward_scalar(env, name, value)
 
+    return total_reward
+
+
+# -----------------------------------------------------------------------------
+# Quadruped base rewards
+# -----------------------------------------------------------------------------
+
+def _base_log(env: "ManagerBasedRLEnv", name: str, value: torch.Tensor) -> None:
     if not hasattr(env, "extras") or env.extras is None:
         env.extras = {}
     if "log" not in env.extras:
         env.extras["log"] = {}
-    active = quality_terms["active"]
-    env.extras["log"]["grasp_quality/active_ratio"] = active.float().mean().detach()
-    env.extras["log"]["grasp_quality/quality_mean"] = _active_mean(quality_terms["quality"], active)
-    env.extras["log"]["grasp_quality/near_score_mean"] = _active_mean(quality_terms["near_score"], active)
-    env.extras["log"]["grasp_quality/tcp_dist_mean"] = _active_mean(quality_terms["tcp_dist"], active)
-    env.extras["log"]["grasp_quality/tcp_dist_max"] = _active_max(quality_terms["tcp_dist"], active)
-    env.extras["log"]["grasp_quality/wrap_score_mean"] = _active_mean(quality_terms["wrap_score"], active)
-    env.extras["log"]["grasp_quality/open_align_mean"] = _active_mean(quality_terms["open_align"], active)
-    env.extras["log"]["grasp_quality/approach_dot_raw_mean"] = _active_mean(quality_terms["approach_dot_raw"], active)
-    env.extras["log"]["grasp_quality/approach_align_mean"] = _active_mean(quality_terms["approach_align"], active)
-    env.extras["log"]["grasp_quality/pose_score_mean"] = _active_mean(quality_terms["pose_score"], active)
-    env.extras["log"]["grasp_quality/contact_score_mean"] = _active_mean(quality_terms["contact_score"], active)
-    env.extras["log"]["grasp_quality/contact_ok_ratio"] = _active_mean(quality_terms["contact_ok"].float(), active)
-    env.extras["log"]["grasp_quality/balance_score_mean"] = _active_mean(quality_terms["balance_score"], active)
-    env.extras["log"]["grasp_quality/closure_score_mean"] = _active_mean(quality_terms["closure_score"], active)
-    env.extras["log"]["grasp_quality/closedness_mean"] = _active_mean(quality_terms["closedness"], active)
-    env.extras["log"]["grasp_quality/quality_gate_mean"] = _active_mean(quality_gate, active)
-    env.extras["log"]["grasp_quality/closed_no_contact_ratio"] = _active_mean(
-        quality_terms["closed_no_contact"].float(), active
-    )
-    env.extras["log"]["grasp_quality/single_finger_ratio"] = _active_mean(quality_terms["single_finger"].float(), active)
-    env.extras["log"]["grasp_quality/f_left_mean"] = _active_mean(quality_terms["f_left"], active)
-    env.extras["log"]["grasp_quality/f_right_mean"] = _active_mean(quality_terms["f_right"], active)
-    env.extras["log"]["grasp_quality/f_min_mean"] = _active_mean(quality_terms["f_min"], active)
-    env.extras["log"]["grasp_quality/f_max_mean"] = _active_mean(quality_terms["f_max"], active)
+    env.extras["log"][f"base_reward/{name}"] = value.mean().detach()
 
-    return total_reward
+
+def _base_reset_mask(env: "ManagerBasedRLEnv", key: str, n: int) -> torch.Tensor:
+    if not hasattr(env, "episode_length_buf"):
+        return torch.zeros(n, dtype=torch.bool, device=env.device)
+    prev_name = f"_prev_ep_len_{key}"
+    if (not hasattr(env, prev_name)) or (getattr(env, prev_name).shape[0] != n):
+        setattr(env, prev_name, env.episode_length_buf.clone())
+    prev = getattr(env, prev_name)
+    mask = (env.episode_length_buf < prev) | (env.episode_length_buf == 0)
+    setattr(env, prev_name, env.episode_length_buf.clone())
+    return mask.to(dtype=torch.bool)
+
+
+def _yaw_from_quat_wxyz(q: torch.Tensor) -> torch.Tensor:
+    w, x, y, z = q.unbind(-1)
+    return torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+
+def _wrap_to_pi(x: torch.Tensor) -> torch.Tensor:
+    return torch.atan2(torch.sin(x), torch.cos(x))
+
+
+def _unit_xy(vec: torch.Tensor, eps: float = 1.0e-6) -> torch.Tensor:
+    return vec / torch.clamp(torch.linalg.norm(vec, dim=-1, keepdim=True), min=eps)
+
+
+def _const_xy(value: tuple[float, float], device, dtype) -> torch.Tensor:
+    return torch.tensor(value, device=device, dtype=dtype).view(1, 2)
+
+
+def _door_angle(
+    env: "ManagerBasedRLEnv",
+    door_joint_cfg: SceneEntityCfg,
+    door_closed_pos: float = 0.0,
+    door_open_sign: float = 1.0,
+) -> torch.Tensor:
+    door: Articulation = env.scene[door_joint_cfg.name]
+    jids = door_joint_cfg.joint_ids
+    door_pos = door.data.joint_pos[:, jids[0]] if len(jids) == 1 else door.data.joint_pos[:, jids].mean(dim=-1)
+    return torch.clamp(float(door_open_sign) * (door_pos - float(door_closed_pos)), min=0.0)
+
+
+def _base_pose_vel(env: "ManagerBasedRLEnv", robot_cfg: SceneEntityCfg):
+    robot: Articulation = env.scene[robot_cfg.name]
+    base_xy = robot.data.root_pos_w[:, :2]
+    base_vel_xy = robot.data.root_lin_vel_w[:, :2]
+    yaw = _yaw_from_quat_wxyz(robot.data.root_quat_w)
+    return robot, base_xy, base_vel_xy, yaw
+
+
+def _base_cmd(env: "ManagerBasedRLEnv") -> torch.Tensor:
+    cmd = getattr(env, "high_level_base_command", None)
+    if cmd is None:
+        return torch.zeros((env.num_envs, 5), device=env.device)
+    return cmd
+
+
+def _requested_base_cmd(env: "ManagerBasedRLEnv") -> torch.Tensor:
+    cmd = getattr(env, "high_level_requested_base_command", None)
+    if cmd is None:
+        return _base_cmd(env)
+    return cmd
+
+
+def _ensure_base_init(env: "ManagerBasedRLEnv", base_xy: torch.Tensor, yaw: torch.Tensor):
+    n = base_xy.shape[0]
+    if (not hasattr(env, "_base_reward_init_xy")) or (env._base_reward_init_xy.shape != base_xy.shape):
+        env._base_reward_init_xy = base_xy.detach().clone()
+        env._base_reward_init_yaw = yaw.detach().clone()
+    reset_mask = _base_reset_mask(env, "base_reward_init", n)
+    env._base_reward_init_xy = torch.where(reset_mask.unsqueeze(-1), base_xy.detach(), env._base_reward_init_xy)
+    env._base_reward_init_yaw = torch.where(reset_mask, yaw.detach(), env._base_reward_init_yaw)
+    return env._base_reward_init_xy, env._base_reward_init_yaw
+
+
+def _base_stage_masks(
+    door_open: torch.Tensor,
+    stage3_start_angle: float = 0.10,
+    stage4_start_angle: float = 0.70,
+):
+    hold_mask = door_open < float(stage3_start_angle)
+    push_follow_mask = (door_open >= float(stage3_start_angle)) & (door_open < float(stage4_start_angle))
+    traverse_mask = door_open >= float(stage4_start_angle)
+    return hold_mask, push_follow_mask, traverse_mask
+
+
+def _doorway_geometry(
+    env: "ManagerBasedRLEnv",
+    base_xy: torch.Tensor,
+    doorway_center_xy: tuple[float, float],
+    doorway_forward_axis: tuple[float, float],
+    door_cfg: SceneEntityCfg = SceneEntityCfg("door"),
+):
+    door: Articulation = env.scene[door_cfg.name]
+    center_d = torch.tensor(
+        (doorway_center_xy[0], doorway_center_xy[1], 0.0),
+        dtype=door.data.root_pos_w.dtype,
+        device=door.data.root_pos_w.device,
+    ).view(1, 3).expand(base_xy.shape[0], 3)
+    forward_d = torch.tensor(
+        (doorway_forward_axis[0], doorway_forward_axis[1], 0.0),
+        dtype=door.data.root_pos_w.dtype,
+        device=door.data.root_pos_w.device,
+    ).view(1, 3).expand(base_xy.shape[0], 3)
+    center_w = door.data.root_pos_w + quat_rotate(door.data.root_quat_w, center_d)
+    forward_w = quat_rotate(door.data.root_quat_w, forward_d)
+    center = center_w[:, :2].to(dtype=base_xy.dtype, device=base_xy.device)
+    forward = _unit_xy(forward_w[:, :2].to(dtype=base_xy.dtype, device=base_xy.device))
+    to_center = center - base_xy
+    to_center_u = _unit_xy(to_center)
+    lateral = torch.stack((-forward[:, 1], forward[:, 0]), dim=-1)
+    signed_forward = torch.sum((base_xy - center) * forward, dim=-1)
+    lateral_error = torch.sum((base_xy - center) * lateral, dim=-1)
+    doorway_yaw = torch.atan2(forward[:, 1], forward[:, 0])
+    return center, forward, to_center_u, signed_forward, lateral_error, doorway_yaw
+
+
+def _contact_indicator_from_sensor(
+    env: "ManagerBasedRLEnv",
+    sensor_name: str | None,
+    threshold: float,
+) -> torch.Tensor:
+    if not sensor_name:
+        return torch.zeros(env.num_envs, dtype=torch.float32, device=env.device)
+    try:
+        sensor: ContactSensor = env.scene[sensor_name]
+    except Exception:
+        return torch.zeros(env.num_envs, dtype=torch.float32, device=env.device)
+
+    fm = getattr(sensor.data, "force_matrix_w", None)
+    if fm is not None:
+        if fm.ndim == 4:
+            force = torch.linalg.norm(fm.sum(dim=2), dim=-1).amax(dim=1)
+        elif fm.ndim == 3:
+            force = torch.linalg.norm(fm.sum(dim=1), dim=-1)
+        else:
+            force = torch.zeros(env.num_envs, device=env.device)
+    else:
+        net = getattr(sensor.data, "net_forces_w", None)
+        if net is None:
+            force = torch.zeros(env.num_envs, device=env.device)
+        elif net.ndim == 3:
+            force = torch.linalg.norm(net, dim=-1).amax(dim=1)
+        else:
+            force = torch.linalg.norm(net, dim=-1)
+    return (force > float(threshold)).float()
+
+
+def _contact_force_norm_from_sensor(
+    env: "ManagerBasedRLEnv",
+    sensor_name: str | None,
+) -> torch.Tensor:
+    if not sensor_name:
+        return torch.zeros(env.num_envs, dtype=torch.float32, device=env.device)
+    try:
+        sensor: ContactSensor = env.scene[sensor_name]
+    except Exception:
+        return torch.zeros(env.num_envs, dtype=torch.float32, device=env.device)
+
+    fm = getattr(sensor.data, "force_matrix_w", None)
+    if fm is not None:
+        if fm.ndim == 4:
+            return torch.linalg.norm(fm.sum(dim=2), dim=-1).amax(dim=1)
+        if fm.ndim == 3:
+            return torch.linalg.norm(fm.sum(dim=1), dim=-1)
+        return torch.zeros(env.num_envs, dtype=torch.float32, device=env.device)
+
+    net = getattr(sensor.data, "net_forces_w", None)
+    if net is None:
+        return torch.zeros(env.num_envs, dtype=torch.float32, device=env.device)
+    if net.ndim == 3:
+        return torch.linalg.norm(net, dim=-1).amax(dim=1)
+    return torch.linalg.norm(net, dim=-1)
+
+
+def _normalized_contact_penalty(
+    env: "ManagerBasedRLEnv",
+    sensor_name: str | None,
+    force_ref: float,
+    door_joint_cfg: SceneEntityCfg,
+    door_closed_pos: float,
+    door_open_sign: float,
+    stage3_start_angle: float,
+    stage4_start_angle: float,
+    early_scale: float,
+    stage3_scale: float,
+    stage4_scale: float,
+) -> torch.Tensor:
+    force = _contact_force_norm_from_sensor(env, sensor_name)
+    penalty = torch.clamp(force / max(float(force_ref), 1.0e-6), 0.0, 1.0)
+    door_open = _door_angle(env, door_joint_cfg, door_closed_pos, door_open_sign)
+    scale = torch.full_like(penalty, float(early_scale))
+    scale = torch.where(door_open >= float(stage3_start_angle), torch.full_like(scale, float(stage3_scale)), scale)
+    scale = torch.where(door_open >= float(stage4_start_angle), torch.full_like(scale, float(stage4_scale)), scale)
+    return penalty * scale
+
+
+def body_door_collision_penalty(
+    env: "ManagerBasedRLEnv",
+    sensor_name: str = "body_door_contact",
+    force_ref: float = 50.0,
+    door_joint_cfg: SceneEntityCfg = SceneEntityCfg("door", joint_names=["door_joint"]),
+    door_closed_pos: float = 0.0,
+    door_open_sign: float = 1.0,
+    stage3_start_angle: float = 0.10,
+    stage4_start_angle: float = 0.70,
+    early_scale: float = 1.0,
+    stage3_scale: float = 0.8,
+    stage4_scale: float = 0.8,
+) -> torch.Tensor:
+    return _normalized_contact_penalty(
+        env, sensor_name, force_ref, door_joint_cfg, door_closed_pos, door_open_sign,
+        stage3_start_angle, stage4_start_angle, early_scale, stage3_scale, stage4_scale
+    )
+
+
+def leg_door_collision_penalty(
+    env: "ManagerBasedRLEnv",
+    sensor_name: str = "leg_door_contact",
+    force_ref: float = 50.0,
+    door_joint_cfg: SceneEntityCfg = SceneEntityCfg("door", joint_names=["door_joint"]),
+    door_closed_pos: float = 0.0,
+    door_open_sign: float = 1.0,
+    stage3_start_angle: float = 0.10,
+    stage4_start_angle: float = 0.70,
+    early_scale: float = 0.7,
+    stage3_scale: float = 0.25,
+    stage4_scale: float = 0.2,
+) -> torch.Tensor:
+    return _normalized_contact_penalty(
+        env, sensor_name, force_ref, door_joint_cfg, door_closed_pos, door_open_sign,
+        stage3_start_angle, stage4_start_angle, early_scale, stage3_scale, stage4_scale
+    )
+
+
+def body_frame_collision_penalty(
+    env: "ManagerBasedRLEnv",
+    sensor_name: str = "body_door_frame_contact",
+    force_ref: float = 50.0,
+    door_joint_cfg: SceneEntityCfg = SceneEntityCfg("door", joint_names=["door_joint"]),
+    door_closed_pos: float = 0.0,
+    door_open_sign: float = 1.0,
+    stage3_start_angle: float = 0.10,
+    stage4_start_angle: float = 0.70,
+    early_scale: float = 1.0,
+    stage3_scale: float = 0.9,
+    stage4_scale: float = 0.9,
+) -> torch.Tensor:
+    return _normalized_contact_penalty(
+        env, sensor_name, force_ref, door_joint_cfg, door_closed_pos, door_open_sign,
+        stage3_start_angle, stage4_start_angle, early_scale, stage3_scale, stage4_scale
+    )
+
+
+def leg_frame_collision_penalty(
+    env: "ManagerBasedRLEnv",
+    sensor_name: str = "leg_door_frame_contact",
+    force_ref: float = 50.0,
+    door_joint_cfg: SceneEntityCfg = SceneEntityCfg("door", joint_names=["door_joint"]),
+    door_closed_pos: float = 0.0,
+    door_open_sign: float = 1.0,
+    stage3_start_angle: float = 0.10,
+    stage4_start_angle: float = 0.70,
+    early_scale: float = 0.7,
+    stage3_scale: float = 0.25,
+    stage4_scale: float = 0.2,
+) -> torch.Tensor:
+    return _normalized_contact_penalty(
+        env, sensor_name, force_ref, door_joint_cfg, door_closed_pos, door_open_sign,
+        stage3_start_angle, stage4_start_angle, early_scale, stage3_scale, stage4_scale
+    )
+
+
+def base_hold_reward(
+    env: "ManagerBasedRLEnv",
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    door_joint_cfg: SceneEntityCfg = SceneEntityCfg("door", joint_names=["door_joint"]),
+    stage3_start_angle: float = 0.10,
+    stage4_start_angle: float = 0.70,
+    door_closed_pos: float = 0.0,
+    door_open_sign: float = 1.0,
+    cmd_penalty_scale: float = 0.5,
+    pos_penalty_scale: float = 1.0,
+    yaw_penalty_scale: float = 1.0,
+    cmd_deadzone: float = 0.0,
+    pos_deadzone: float = 0.0,
+    yaw_deadzone: float = 0.0,
+) -> torch.Tensor:
+    _, base_xy, _, yaw = _base_pose_vel(env, robot_cfg)
+    init_xy, init_yaw = _ensure_base_init(env, base_xy, yaw)
+    cmd = _base_cmd(env)
+    grasp_ok = getattr(env, "_grasp_success_given", None)
+    if grasp_ok is None:
+        grasp_ok = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    else:
+        grasp_ok = grasp_ok.to(dtype=torch.bool)
+    # Base hold belongs exclusively to Stage 1: grasp latched, door not yet
+    # physically unlocked. Stage 0 approach and Stage 2 pushing are unmasked.
+    hold_mask = grasp_ok & (~_physical_door_unlocked(env))
+
+    cmd_mag = torch.linalg.norm(cmd[:, :3], dim=-1)
+    pos_err = torch.linalg.norm(base_xy - init_xy, dim=-1)
+    yaw_err = torch.abs(_wrap_to_pi(yaw - init_yaw))
+
+    cmd_cost = torch.clamp(cmd_mag - float(cmd_deadzone), min=0.0) ** 2
+    pos_cost = torch.clamp(pos_err - float(pos_deadzone), min=0.0) ** 2
+    yaw_cost = torch.clamp(yaw_err - float(yaw_deadzone), min=0.0) ** 2
+
+    reward = (
+        -float(cmd_penalty_scale) * cmd_cost
+        -float(pos_penalty_scale) * pos_cost
+        -float(yaw_penalty_scale) * yaw_cost
+    )
+    reward = hold_mask.float() * reward
+    _base_log(env, "hold", reward)
+    _base_log(env, "hold_mask", hold_mask.float())
+    _base_log(env, "hold_cmd_cost", cmd_cost)
+    _base_log(env, "hold_pos_cost", pos_cost)
+    _base_log(env, "hold_yaw_cost", yaw_cost)
+    return reward
+
+
+def base_push_follow_reward(
+    env: "ManagerBasedRLEnv",
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    door_joint_cfg: SceneEntityCfg = SceneEntityCfg("door", joint_names=["door_joint"]),
+    doorway_center_xy: tuple[float, float] = (0.0, 0.0),
+    doorway_forward_axis: tuple[float, float] = (1.0, 0.0),
+    stage3_start_angle: float = 0.10,
+    stage4_start_angle: float = 0.70,
+    door_reward_start_angle: float = 0.20,
+    door_closed_pos: float = 0.0,
+    door_open_sign: float = 1.0,
+    k_yaw: float = 2.0,
+    progress_vel_scale: float = 0.5,
+) -> torch.Tensor:
+    _, base_xy, base_vel_xy, yaw = _base_pose_vel(env, robot_cfg)
+    door_open = _door_angle(env, door_joint_cfg, door_closed_pos, door_open_sign)
+    _, stage3_mask, _ = _base_stage_masks(door_open, stage3_start_angle, stage4_start_angle)
+    _, _, to_center_u, _, _, doorway_yaw = _doorway_geometry(
+        env, base_xy, doorway_center_xy, doorway_forward_axis, door_joint_cfg
+    )
+
+    n = door_open.shape[0]
+    if (not hasattr(env, "_base_reward_prev_door_open")) or (env._base_reward_prev_door_open.shape[0] != n):
+        env._base_reward_prev_door_open = door_open.detach().clone()
+    reset_mask = _base_reset_mask(env, "base_reward_door_open", n)
+    env._base_reward_prev_door_open = torch.where(reset_mask, door_open.detach(), env._base_reward_prev_door_open)
+    door_progress_reward = torch.relu(door_open - env._base_reward_prev_door_open)
+    env._base_reward_prev_door_open = door_open.detach()
+
+    door_angle_reward = torch.clamp(
+        (door_open - float(door_reward_start_angle)) / float(max(stage4_start_angle - door_reward_start_angle, 1e-6)),
+        0.0,
+        1.0,
+    )
+    base_to_doorway_reward = torch.clamp(
+        torch.sum(base_vel_xy * to_center_u, dim=-1) / float(max(progress_vel_scale, 1e-6)),
+        0.0,
+        1.0,
+    )
+    yaw_align_reward = torch.exp(-float(k_yaw) * _wrap_to_pi(yaw - doorway_yaw) ** 2)
+    reward = stage3_mask.float() * (
+        8.0 * door_angle_reward
+        + 8.0 * door_progress_reward
+        + 2.0 * base_to_doorway_reward
+        + yaw_align_reward
+    )
+    _base_log(env, "push_follow", reward)
+    _base_log(env, "push_follow_mask", stage3_mask.float())
+    _base_log(env, "push_follow_door_angle", door_angle_reward)
+    _base_log(env, "push_follow_door_progress", door_progress_reward)
+    _base_log(env, "push_follow_to_doorway", base_to_doorway_reward)
+    return reward
+
+
+def base_traverse_reward(
+    env: "ManagerBasedRLEnv",
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    door_joint_cfg: SceneEntityCfg = SceneEntityCfg("door", joint_names=["door_joint"]),
+    doorway_center_xy: tuple[float, float] = (0.0, 0.0),
+    doorway_forward_axis: tuple[float, float] = (1.0, 0.0),
+    hook_contact_sensor_name: str | None = "hook_contact",
+    stage3_start_angle: float = 0.10,
+    stage4_start_angle: float = 0.70,
+    door_closed_pos: float = 0.0,
+    door_open_sign: float = 1.0,
+    k_lat: float = 6.0,
+    k_yaw: float = 2.0,
+    progress_vel_scale: float = 0.5,
+    release_contact_threshold: float = 0.2,
+    release_near_doorway_distance: float = 0.35,
+    keep_opening_reward: float = 8.0,
+) -> torch.Tensor:
+    _, base_xy, base_vel_xy, yaw = _base_pose_vel(env, robot_cfg)
+    door_open = _door_angle(env, door_joint_cfg, door_closed_pos, door_open_sign)
+    _, _, traverse_mask = _base_stage_masks(door_open, stage3_start_angle, stage4_start_angle)
+    center, forward, to_center_u, signed_forward, lateral_error, doorway_yaw = _doorway_geometry(
+        env, base_xy, doorway_center_xy, doorway_forward_axis, door_joint_cfg
+    )
+
+    progress_axis = torch.where((signed_forward > 0.0).unsqueeze(-1), forward, to_center_u)
+    pass_reward = torch.clamp(
+        torch.sum(base_vel_xy * progress_axis, dim=-1) / float(max(progress_vel_scale, 1e-6)),
+        0.0,
+        1.0,
+    )
+    center_reward = torch.exp(-float(k_lat) * lateral_error ** 2)
+    yaw_align_reward = torch.exp(-float(k_yaw) * _wrap_to_pi(yaw - doorway_yaw) ** 2)
+
+    distance_to_doorway = torch.linalg.norm(center - base_xy, dim=-1)
+    handle_contact = _contact_indicator_from_sensor(env, hook_contact_sensor_name, release_contact_threshold) > 0.0
+    release_gate = traverse_mask & (distance_to_doorway < float(release_near_doorway_distance))
+    release_handle_reward = release_gate.float() * (~handle_contact).float()
+
+    reward = traverse_mask.float() * (
+        float(keep_opening_reward)
+        + 8.0 * pass_reward
+        + 2.0 * center_reward
+        + yaw_align_reward
+        + 2.0 * release_handle_reward
+    )
+    _base_log(env, "traverse", reward)
+    _base_log(env, "traverse_mask", traverse_mask.float())
+    _base_log(env, "traverse_pass", pass_reward)
+    _base_log(env, "traverse_release", release_handle_reward)
+    return reward
+
+
+def base_safety_reward(
+    env: "ManagerBasedRLEnv",
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    door_joint_cfg: SceneEntityCfg = SceneEntityCfg("door", joint_names=["door_joint"]),
+    body_door_sensor_name: str | None = "body_door_contact",
+    leg_door_sensor_name: str | None = "leg_door_contact",
+    body_frame_sensor_name: str | None = "body_door_frame_contact",
+    leg_frame_sensor_name: str | None = "leg_door_frame_contact",
+    force_ref: float = 50.0,
+    default_height: float = 0.43,
+    door_closed_pos: float = 0.0,
+    door_open_sign: float = 1.0,
+    stage3_start_angle: float = 0.10,
+    stage4_start_angle: float = 0.70,
+    early_body_door_weight: float = 1.0,
+    early_leg_door_weight: float = 0.5,
+    early_body_frame_weight: float = 1.0,
+    early_leg_frame_weight: float = 0.5,
+    late_body_door_weight: float = 0.5,
+    late_leg_door_weight: float = 0.2,
+    late_body_frame_weight: float = 0.5,
+    late_leg_frame_weight: float = 0.2,
+    cmd_rate_weight: float = 0.05,
+    height_pitch_weight: float = 2.0,
+) -> torch.Tensor:
+    cmd = _base_cmd(env)
+    requested_cmd = _requested_base_cmd(env)
+    n = cmd.shape[0]
+    if (not hasattr(env, "_base_reward_prev_cmd")) or (env._base_reward_prev_cmd.shape != cmd.shape):
+        env._base_reward_prev_cmd = cmd.detach().clone()
+    reset_mask = _base_reset_mask(env, "base_reward_cmd", n)
+    env._base_reward_prev_cmd = torch.where(reset_mask.unsqueeze(-1), cmd.detach(), env._base_reward_prev_cmd)
+    cmd_rate = torch.sum((cmd - env._base_reward_prev_cmd) ** 2, dim=-1)
+    env._base_reward_prev_cmd = cmd.detach()
+
+    height_pitch_reg = (requested_cmd[:, 3] - float(default_height)) ** 2 + requested_cmd[:, 4] ** 2
+
+    body_door_force = torch.clamp(
+        _contact_force_norm_from_sensor(env, body_door_sensor_name) / max(float(force_ref), 1.0e-6),
+        0.0,
+        1.0,
+    )
+    leg_door_force = torch.clamp(
+        _contact_force_norm_from_sensor(env, leg_door_sensor_name) / max(float(force_ref), 1.0e-6),
+        0.0,
+        1.0,
+    )
+    body_frame_force = torch.clamp(
+        _contact_force_norm_from_sensor(env, body_frame_sensor_name) / max(float(force_ref), 1.0e-6),
+        0.0,
+        1.0,
+    )
+    leg_frame_force = torch.clamp(
+        _contact_force_norm_from_sensor(env, leg_frame_sensor_name) / max(float(force_ref), 1.0e-6),
+        0.0,
+        1.0,
+    )
+
+    door_open = _door_angle(env, door_joint_cfg, door_closed_pos, door_open_sign)
+    late_mask = door_open >= float(stage3_start_angle)
+    w_body_door = torch.where(
+        late_mask,
+        torch.full_like(body_door_force, float(late_body_door_weight)),
+        torch.full_like(body_door_force, float(early_body_door_weight)),
+    )
+    w_leg_door = torch.where(
+        late_mask,
+        torch.full_like(leg_door_force, float(late_leg_door_weight)),
+        torch.full_like(leg_door_force, float(early_leg_door_weight)),
+    )
+    w_body_frame = torch.where(
+        late_mask,
+        torch.full_like(body_frame_force, float(late_body_frame_weight)),
+        torch.full_like(body_frame_force, float(early_body_frame_weight)),
+    )
+    w_leg_frame = torch.where(
+        late_mask,
+        torch.full_like(leg_frame_force, float(late_leg_frame_weight)),
+        torch.full_like(leg_frame_force, float(early_leg_frame_weight)),
+    )
+
+    reward = (
+        -w_body_door * body_door_force
+        -w_leg_door * leg_door_force
+        -w_body_frame * body_frame_force
+        -w_leg_frame * leg_frame_force
+        -float(cmd_rate_weight) * cmd_rate
+        -float(height_pitch_weight) * height_pitch_reg
+    )
+    _base_log(env, "safety", reward)
+    _base_log(env, "safety_body_door_force_term", body_door_force)
+    _base_log(env, "safety_leg_door_force_term", leg_door_force)
+    _base_log(env, "safety_body_frame_force_term", body_frame_force)
+    _base_log(env, "safety_leg_frame_force_term", leg_frame_force)
+    _base_log(env, "safety_late_weight_mask", late_mask.float())
+    _base_log(env, "safety_cmd_rate", cmd_rate)
+    _base_log(env, "safety_height_pitch_reg", height_pitch_reg)
+    return reward
+
+
+def base_traverse_success(
+    env: "ManagerBasedRLEnv",
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    door_joint_cfg: SceneEntityCfg = SceneEntityCfg("door", joint_names=["door_joint"]),
+    doorway_center_xy: tuple[float, float] = (0.0, 0.0),
+    doorway_forward_axis: tuple[float, float] = (1.0, 0.0),
+    door_closed_pos: float = 0.0,
+    door_open_sign: float = 1.0,
+    min_door_angle: float = 0.70,
+    pass_distance: float = 0.5,
+    num_steps: int = 3,
+) -> torch.Tensor:
+    _, base_xy, _, _ = _base_pose_vel(env, robot_cfg)
+    door_open = _door_angle(env, door_joint_cfg, door_closed_pos, door_open_sign)
+    _, _, _, signed_forward, _, _ = _doorway_geometry(
+        env, base_xy, doorway_center_xy, doorway_forward_axis, door_joint_cfg
+    )
+    good = (door_open > float(min_door_angle)) & (signed_forward > float(pass_distance))
+
+    n = good.shape[0]
+    if (not hasattr(env, "_base_traverse_success_counter")) or (env._base_traverse_success_counter.shape[0] != n):
+        env._base_traverse_success_counter = torch.zeros(n, dtype=torch.int32, device=env.device)
+    reset_mask = _base_reset_mask(env, "base_traverse_success", n)
+    env._base_traverse_success_counter = torch.where(
+        reset_mask,
+        torch.zeros_like(env._base_traverse_success_counter),
+        env._base_traverse_success_counter,
+    )
+    env._base_traverse_success_counter = torch.where(
+        good,
+        env._base_traverse_success_counter + 1,
+        torch.zeros_like(env._base_traverse_success_counter),
+    )
+    done = env._base_traverse_success_counter >= int(max(1, num_steps))
+    _base_log(env, "success_done", done.float())
+    _base_log(env, "success_signed_forward", signed_forward)
+    return done
+
+
+def base_task_failure(
+    env: "ManagerBasedRLEnv",
+    robot_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    door_joint_cfg: SceneEntityCfg = SceneEntityCfg("door", joint_names=["door_joint"]),
+    doorway_center_xy: tuple[float, float] = (0.0, 0.0),
+    doorway_forward_axis: tuple[float, float] = (1.0, 0.0),
+    base_door_sensor_name: str | None = None,
+    thigh_calf_door_sensor_name: str | None = None,
+    arm_body_leg_sensor_name: str | None = None,
+    door_closed_pos: float = 0.0,
+    door_open_sign: float = 1.0,
+    tilt_limit_deg: float = 25.0,
+    collision_force_threshold: float = 30.0,
+    door_close_after_angle: float = 0.10,
+    door_closed_failure_angle: float = 0.03,
+    stuck_stage_angle: float = 0.70,
+    stuck_progress_speed: float = 0.02,
+    stuck_steps: int = 180,
+    num_bad_steps: int = 2,
+) -> torch.Tensor:
+    robot, base_xy, base_vel_xy, _ = _base_pose_vel(env, robot_cfg)
+    door_open = _door_angle(env, door_joint_cfg, door_closed_pos, door_open_sign)
+    _, forward, to_center_u, signed_forward, _, _ = _doorway_geometry(
+        env, base_xy, doorway_center_xy, doorway_forward_axis, door_joint_cfg
+    )
+
+    base_door_collision = _contact_indicator_from_sensor(env, base_door_sensor_name, collision_force_threshold) > 0.0
+    thigh_calf_door_collision = (
+        _contact_indicator_from_sensor(env, thigh_calf_door_sensor_name, collision_force_threshold) > 0.0
+    )
+    arm_body_leg_collision = _contact_indicator_from_sensor(env, arm_body_leg_sensor_name, collision_force_threshold) > 0.0
+    tilt = torch.acos(torch.clamp(-robot.data.projected_gravity_b[:, 2], -1.0, 1.0))
+    fallen = tilt > math.radians(float(tilt_limit_deg))
+
+    n = door_open.shape[0]
+    if (not hasattr(env, "_base_failure_max_door_open")) or (env._base_failure_max_door_open.shape[0] != n):
+        env._base_failure_max_door_open = door_open.detach().clone()
+    reset_mask = _base_reset_mask(env, "base_task_failure", n)
+    env._base_failure_max_door_open = torch.where(
+        reset_mask,
+        door_open.detach(),
+        torch.maximum(env._base_failure_max_door_open, door_open.detach()),
+    )
+    door_bumped_closed = (
+        (env._base_failure_max_door_open > float(door_close_after_angle))
+        & (door_open < float(door_closed_failure_angle))
+    )
+
+    progress_axis = torch.where((signed_forward > 0.0).unsqueeze(-1), forward, to_center_u)
+    progress_speed = torch.sum(base_vel_xy * progress_axis, dim=-1)
+    stuck_active = door_open > float(stuck_stage_angle)
+    stuck_now = stuck_active & (progress_speed < float(stuck_progress_speed))
+    if (not hasattr(env, "_base_stuck_counter")) or (env._base_stuck_counter.shape[0] != n):
+        env._base_stuck_counter = torch.zeros(n, dtype=torch.int32, device=env.device)
+    env._base_stuck_counter = torch.where(
+        reset_mask | (~stuck_now),
+        torch.zeros_like(env._base_stuck_counter),
+        env._base_stuck_counter + 1,
+    )
+    stuck = env._base_stuck_counter >= int(max(1, stuck_steps))
+
+    severe = base_door_collision | thigh_calf_door_collision | arm_body_leg_collision | fallen | door_bumped_closed | stuck
+    if (not hasattr(env, "_base_failure_counter")) or (env._base_failure_counter.shape[0] != n):
+        env._base_failure_counter = torch.zeros(n, dtype=torch.int32, device=env.device)
+    env._base_failure_counter = torch.where(
+        reset_mask,
+        torch.zeros_like(env._base_failure_counter),
+        env._base_failure_counter,
+    )
+    env._base_failure_counter = torch.where(
+        severe,
+        env._base_failure_counter + 1,
+        torch.zeros_like(env._base_failure_counter),
+    )
+    done = env._base_failure_counter >= int(max(1, num_bad_steps))
+    _base_log(env, "failure_done", done.float())
+    _base_log(env, "failure_fallen", fallen.float())
+    _base_log(env, "failure_door_bumped_closed", door_bumped_closed.float())
+    _base_log(env, "failure_stuck", stuck.float())
+    return done

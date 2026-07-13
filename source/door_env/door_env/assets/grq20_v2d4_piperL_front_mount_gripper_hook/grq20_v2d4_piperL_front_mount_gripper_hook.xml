@@ -1,0 +1,369 @@
+<mujoco model="grq20_v2d4_piperL_front_mount">
+    <compiler angle="radian" eulerseq="xyz" meshdir="./meshes/" autolimits="true" />
+    <option timestep="0.001" gravity="0 0 -9.81" />
+    <option cone="elliptic" impratio="100" />
+    <default>
+        <geom type="sphere" contype="2" conaffinity="4" solref="0.005 1" condim="1" friction="0.7 0.7" />
+        <default class="collision">
+            <geom type="sphere" contype="1" group="3" />
+        </default>
+    </default>
+    <asset>
+        <mesh name="base_link_visual_TRUNK_1" file="meshes_simplify/TRUNK.STL" />
+        <mesh name="FL_hip_visual_FL_HIP_2" file="meshes_simplify/FL_HIP.STL" />
+        <mesh name="FL_thigh_visual_FL_THIGH_3" file="meshes_simplify/FL_THIGH.STL" />
+        <mesh name="FL_calf_visual_FL_CALF_4" file="meshes_simplify/FL_CALF.STL" />
+        <mesh name="RL_hip_visual_RL_HIP_5" file="meshes_simplify/RL_HIP.STL" />
+        <mesh name="FR_hip_visual_FL_HIP_mirror" file="meshes_simplify/FL_HIP.STL" scale="1 -1 1" />
+        <mesh name="FR_thigh_visual_FL_THIGH_mirror" file="meshes_simplify/FL_THIGH.STL" scale="1 -1 1" />
+        <mesh name="FR_calf_visual_FL_CALF_mirror" file="meshes_simplify/FL_CALF.STL" scale="1 -1 1" />
+        <mesh name="RR_hip_visual_RL_HIP_mirror" file="meshes_simplify/RL_HIP.STL" scale="1 -1 1" />
+        <mesh name="RR_thigh_visual_FL_THIGH_mirror" file="meshes_simplify/FL_THIGH.STL" scale="1 -1 1" />
+        <mesh name="RR_calf_visual_FL_CALF_mirror" file="meshes_simplify/FL_CALF.STL" scale="1 -1 1" />
+        <mesh name="piperL_base_link_visual_base_link_6" file="piper_l/base_link.stl" />
+        <mesh name="piperL_base_link_collision_base_link_7" file="piper_l/base_link.stl" />
+        <mesh name="link1_visual_link1_8" file="piper_l/link1.stl" />
+        <mesh name="link1_collision_link1_9" file="piper_l/link1.stl" />
+        <mesh name="link2_visual_link2_10" file="piper_l/link2.stl" />
+        <mesh name="link2_collision_link2_11" file="piper_l/link2.stl" />
+        <mesh name="link3_visual_link3_12" file="piper_l/link3.stl" />
+        <mesh name="link3_collision_link3_13" file="piper_l/link3.stl" />
+        <mesh name="link4_visual_link4_14" file="piper_l/link4.stl" />
+        <mesh name="link4_collision_link4_15" file="piper_l/link4.stl" />
+        <mesh name="link5_visual_link5_16" file="piper_l/link5.stl" />
+        <mesh name="link5_collision_link5_17" file="piper_l/link5.stl" />
+        <mesh name="link6_visual_link6_18" file="piper_l/link6.stl" />
+        <mesh name="link6_collision_link6_19" file="piper_l/link6.stl" />
+        <mesh name="gripper_hook_visual_base_20" file="gripper_hook/base.STL" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_hook_visual_hook_21" file="gripper_hook/hook.STL" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_base_collision_00" file="gripper_hook/collision/base_col_00.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_base_collision_01" file="gripper_hook/collision/base_col_01.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_base_collision_02" file="gripper_hook/collision/base_col_02.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_base_collision_03" file="gripper_hook/collision/base_col_03.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_base_collision_04" file="gripper_hook/collision/base_col_04.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_base_collision_05" file="gripper_hook/collision/base_col_05.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_base_collision_06" file="gripper_hook/collision/base_col_06.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_base_collision_07" file="gripper_hook/collision/base_col_07.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_base_collision_08" file="gripper_hook/collision/base_col_08.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_base_collision_09" file="gripper_hook/collision/base_col_09.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_base_collision_10" file="gripper_hook/collision/base_col_10.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_base_collision_11" file="gripper_hook/collision/base_col_11.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_hook_collision_00" file="gripper_hook/collision/hook_col_00.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_hook_collision_01" file="gripper_hook/collision/hook_col_01.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_hook_collision_02" file="gripper_hook/collision/hook_col_02.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_hook_collision_03" file="gripper_hook/collision/hook_col_03.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_hook_collision_04" file="gripper_hook/collision/hook_col_04.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_hook_collision_05" file="gripper_hook/collision/hook_col_05.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_hook_collision_06" file="gripper_hook/collision/hook_col_06.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_hook_collision_07" file="gripper_hook/collision/hook_col_07.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_hook_collision_08" file="gripper_hook/collision/hook_col_08.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_hook_collision_09" file="gripper_hook/collision/hook_col_09.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_hook_collision_10" file="gripper_hook/collision/hook_col_10.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_hook_collision_11" file="gripper_hook/collision/hook_col_11.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_hook_collision_12" file="gripper_hook/collision/hook_col_12.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_hook_collision_13" file="gripper_hook/collision/hook_col_13.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_hook_collision_14" file="gripper_hook/collision/hook_col_14.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_hook_collision_15" file="gripper_hook/collision/hook_col_15.stl" scale="0.001 0.001 0.001" />
+        <mesh name="gripper_hook_collision_16" file="gripper_hook/collision/hook_col_16.stl" scale="0.001 0.001 0.001" />
+    </asset>
+    <worldbody>
+        <light name="spotlight" mode="targetbodycom" target="base_link" pos="0 -1 2" />
+        <body name="base_link" pos="0 0 0.6" quat="1 0 0 0">
+            <inertial pos="-0.004929 -0.006432 0.000388" mass="25.6926" fullinertia="0.16935 0.923633366 0.98656309 5.869e-05 0.00867383 -6.856e-05" />
+            <freejoint />
+            <site name="imu" size="0.01" pos="0 0 0" />
+            <geom pos="0 0 0" quat="1 0 0 0" rgba="0.8 0.4 0 1" type="mesh" mesh="base_link_visual_TRUNK_1" contype="0" conaffinity="0" />
+            <geom pos="0 0 -0.01" quat="1 0 0 0" class="collision" type="box" size="0.21 0.13 0.09" />
+            <geom pos="0.34 0 0.01" quat="1 0 0 0" class="collision" type="box" size="0.13 0.08 0.07" />
+            <geom pos="-0.34 0 0.01" quat="1 0 0 0" class="collision" type="box" size="0.13 0.08 0.07" />
+            <geom pos="0.27 0 0.1" quat="1 0 0 0" class="collision" type="box" size="0.03 0.08 0.025" />
+            <geom pos="-0.2 0 0.1" quat="1 0 0 0" class="collision" type="box" size="0.09 0.08 0.025" />
+            <body name="airy_front" pos="0.37222 0 0.00959" quat="0.7071067907 0 0.7071067717 0">
+                <geom pos="0 0 0" quat="1 0 0 0" type="sphere" size="0.02" />
+            </body>
+            <body name="camera_front" pos="0.4 0 0.08" quat="1 0 0 0">
+                <geom pos="0 0 0" quat="1 0 0 0" type="sphere" size="0.02" />
+            </body>
+            <body name="airy_back" pos="-0.3723 0 0.00959" quat="1.894685333e-08 -0.7071067717 1.894685282e-08 0.7071067907">
+                <geom pos="0 0 0" quat="1 0 0 0" type="sphere" size="0.02" />
+            </body>
+            <body name="FL_hip" pos="0.2987 0.06 0" quat="1 0 0 0">
+                <inertial pos="-0.00414483 -0.02428541 -0.00047429" mass="1.94175758" fullinertia="0.0021062 0.0036609 0.00248649 -7.994e-05 4.41e-06 -4.4e-06" />
+                <joint name="FL_hip_joint" type="hinge" axis="1 0 0" damping="1" limited="true" range="-0.741764919444444 0.741764919444444" />
+                <geom pos="0 0 0" quat="1 0 0 0" rgba="1 0.4 0.4 1" type="mesh" mesh="FL_hip_visual_FL_HIP_2" contype="0" conaffinity="0" />
+                <body name="FL_thigh" pos="0 0.1361 0" quat="1 0 0 0">
+                    <inertial pos="-0.00656356 -0.02752354 -0.03754152" mass="3.70524072" fullinertia="0.02670343 0.02649136 0.0068689 0.00062533 -0.00208327 0.00371242" />
+                    <joint name="FL_thigh_joint" type="hinge" axis="0 1 0" damping="1" limited="true" range="-1.221730456 3.839724289" />
+                    <geom pos="0 0 0" quat="1 0 0 0" rgba="1 1 0.4 1" type="mesh" mesh="FL_thigh_visual_FL_THIGH_3" contype="0" conaffinity="0" />
+                    <geom pos="0 -0.04 0" quat="0.5003981634 0.4999998415 0.4999998415 -0.4996018366" class="collision" type="cylinder" size="0.065 0.06" />
+                    <geom pos="-0.03158 0 -0.09691" quat="0.9887710779 0 0.1494381325 0" class="collision" type="box" size="0.03184 0.023 0.09882" />
+                    <geom pos="-0.025 0 -0.23181" quat="0.9689124217 0 -0.2474039593 0" class="collision" type="box" size="0.025 0.023 0.065" />
+                    <body name="FL_calf" pos="0 0 -0.28" quat="1 0 0 0">
+                        <inertial pos="0.01721758 0.00046932 -0.13605748" mass="0.36964069" fullinertia="0.00452796 0.00466323 0.00021316 2.24e-06 5.207e-05 2.151e-05" />
+                        <joint name="FL_calf_joint" type="hinge" axis="0 1 0" damping="1" limited="true" range="-2.754164416 -1.035626001" />
+                        <geom pos="0 0 0" quat="1 0 0 0" rgba="0.4 1 0.4 1" type="mesh" mesh="FL_calf_visual_FL_CALF_4" contype="0" conaffinity="0" />
+                        <geom pos="0.025 0 -0.06536" quat="0.9887710779 0 -0.1494381325 0" class="collision" type="box" size="0.0165 0.0165 0.08" />
+                        <geom pos="0.028 0 -0.2" quat="0.9902159962 0 0.1395431146 0" class="collision" type="box" size="0.018 0.018 0.08" />
+                        <body name="FL_foot" pos="0 0 -0.28" quat="0.7073882692 0.7068251811 0 0">
+                            <inertial pos="0 0 0" mass="0.02" fullinertia="1.096000666e-09 1.096000666e-09 1.096000666e-09 0 0 0" />
+                            <geom name="FL_foot_visual" pos="0 0 0" quat="1 0 0 0" rgba="0 0.5 1 1" type="sphere" size="0.026" contype="0" conaffinity="0" />
+                            <geom name="FL_foot_collision" pos="0 0 0" quat="1 0 0 0" class="collision" type="sphere" size="0.026" condim="4" friction="1.4 0.08 0.01" />
+                            <site name="FL_foot_touch" pos="0 0 0" size="0.015" />
+                        </body>
+                    </body>
+                </body>
+            </body>
+            <body name="RL_hip" pos="-0.2987 0.06 0" quat="1 0 0 0">
+                <inertial pos="-0.00414483 -0.02428541 -0.00047429" mass="1.94175758" fullinertia="0.0021062 0.0036609 0.00248649 -7.994e-05 4.41e-06 -4.4e-06" />
+                <joint name="RL_hip_joint" type="hinge" axis="1 0 0" damping="1" limited="true" range="-0.741764919444444 0.741764919444444" />
+                <geom pos="0 0 0" quat="1 0 0 0" rgba="0.8 1.0 0.8 1" type="mesh" mesh="RL_hip_visual_RL_HIP_5" contype="0" conaffinity="0" />
+                <body name="RL_thigh" pos="0 0.1361 0" quat="1 0 0 0">
+                    <inertial pos="-0.00656356 -0.02752354 -0.03754152" mass="3.70524072" fullinertia="0.02670343 0.02649136 0.0068689 0.00062533 -0.00208327 0.00371242" />
+                    <joint name="RL_thigh_joint" type="hinge" axis="0 1 0" damping="1" limited="true" range="-1.221730456 3.839724289" />
+                    <geom pos="0 0 0" quat="1 0 0 0" rgba="1 0.5 1 1" type="mesh" mesh="FL_thigh_visual_FL_THIGH_3" contype="0" conaffinity="0" />
+                    <geom pos="0 -0.04 0" quat="0.5003981634 0.4999998415 0.4999998415 -0.4996018366" class="collision" type="cylinder" size="0.065 0.06" />
+                    <geom pos="-0.03158 0 -0.09691" quat="0.9887710779 0 0.1494381325 0" class="collision" type="box" size="0.03184 0.023 0.09882" />
+                    <geom pos="-0.025 0 -0.23181" quat="0.9689124217 0 -0.2474039593 0" class="collision" type="box" size="0.025 0.023 0.065" />
+                    <body name="RL_calf" pos="0 0 -0.28" quat="1 0 0 0">
+                        <inertial pos="0.01721758 0.00046932 -0.13605748" mass="0.36964069" fullinertia="0.00452796 0.00466323 0.00021316 2.24e-06 5.207e-05 2.151e-05" />
+                        <joint name="RL_calf_joint" type="hinge" axis="0 1 0" damping="1" limited="true" range="-2.754164416 -1.035626001" />
+                        <geom pos="0 0 0" quat="1 0 0 0" rgba="1 0.4 0.4 1" type="mesh" mesh="FL_calf_visual_FL_CALF_4" contype="0" conaffinity="0" />
+                        <geom pos="0.025 0 -0.06536" quat="0.9887710779 0 -0.1494381325 0" class="collision" type="box" size="0.0165 0.0165 0.08" />
+                        <geom pos="0.028 0 -0.2" quat="0.9902159962 0 0.1395431146 0" class="collision" type="box" size="0.018 0.018 0.08" />
+                        <body name="RL_foot" pos="0 0 -0.28" quat="0.7073882692 0.7068251811 0 0">
+                            <inertial pos="0 0 0" mass="0.02" fullinertia="1.096000666e-09 1.096000666e-09 1.096000666e-09 0 0 0" />
+                            <geom name="RL_foot_visual" pos="0 0 0" quat="1 0 0 0" rgba="0 0.5 1 1" type="sphere" size="0.026" contype="0" conaffinity="0" />
+                            <geom name="RL_foot_collision" pos="0 0 0" quat="1 0 0 0" class="collision" type="sphere" size="0.026" condim="4" friction="1.4 0.08 0.01" />
+                            <site name="RL_foot_touch" pos="0 0 0" size="0.015" />
+                        </body>
+                    </body>
+                </body>
+            </body>
+            <body name="FR_hip" pos="0.2987 -0.06 0" quat="1 0 0 0">
+                <inertial pos="-0.00414483 0.02428541 -0.00047429" mass="1.94175758" fullinertia="0.0021062 0.0036609 0.00248649 7.994e-05 4.41e-06 4.4e-06" />
+                <joint name="FR_hip_joint" type="hinge" axis="1 0 0" damping="1" limited="true" range="-0.741764919444444 0.741764919444444" />
+                <geom pos="0 0 0" quat="1 0 0 0" rgba="1 0.4 0.4 1" type="mesh" mesh="FR_hip_visual_FL_HIP_mirror" contype="0" conaffinity="0" />
+                <body name="FR_thigh" pos="0 -0.1361 0" quat="1 0 0 0">
+                    <inertial pos="-0.00656356 0.02752354 -0.03754152" mass="3.70524072" fullinertia="0.02670343 0.02649136 0.0068689 -0.00062533 -0.00208327 -0.00371242" />
+                    <joint name="FR_thigh_joint" type="hinge" axis="0 1 0" damping="1" limited="true" range="-1.221730456 3.839724289" />
+                    <geom pos="0 0 0" quat="1 0 0 0" rgba="1 1 0.4 1" type="mesh" mesh="FR_thigh_visual_FL_THIGH_mirror" contype="0" conaffinity="0" />
+                    <geom pos="0 0.04 0" quat="0.5003981634 0.4999998415 0.4999998415 -0.4996018366" class="collision" type="cylinder" size="0.065 0.06" />
+                    <geom pos="-0.03158 0 -0.09691" quat="0.9887710779 0 0.1494381325 0" class="collision" type="box" size="0.03184 0.023 0.09882" />
+                    <geom pos="-0.025 0 -0.23181" quat="0.9689124217 0 -0.2474039593 0" class="collision" type="box" size="0.025 0.023 0.065" />
+                    <body name="FR_calf" pos="0 -0 -0.28" quat="1 0 0 0">
+                        <inertial pos="0.01721758 -0.00046932 -0.13605748" mass="0.36964069" fullinertia="0.00452796 0.00466323 0.00021316 -2.24e-06 5.207e-05 -2.151e-05" />
+                        <joint name="FR_calf_joint" type="hinge" axis="0 1 0" damping="1" limited="true" range="-2.754164416 -1.035626001" />
+                        <geom pos="0 0 0" quat="1 0 0 0" rgba="0.4 1 0.4 1" type="mesh" mesh="FR_calf_visual_FL_CALF_mirror" contype="0" conaffinity="0" />
+                        <geom pos="0.025 0 -0.06536" quat="0.9887710779 0 -0.1494381325 0" class="collision" type="box" size="0.0165 0.0165 0.08" />
+                        <geom pos="0.028 0 -0.2" quat="0.9902159962 0 0.1395431146 0" class="collision" type="box" size="0.018 0.018 0.08" />
+                        <body name="FR_foot" pos="0 -0 -0.28" quat="0.7073882692 -0.7068251811 0 0">
+                            <inertial pos="0 -0 0" mass="0.02" fullinertia="1.096000666e-09 1.096000666e-09 1.096000666e-09 -0 0 -0" />
+                            <geom name="FR_foot_visual" pos="0 0 0" quat="1 0 0 0" rgba="0 0.5 1 1" type="sphere" size="0.026" contype="0" conaffinity="0" />
+                            <geom name="FR_foot_collision" pos="0 0 0" quat="1 0 0 0" class="collision" type="sphere" size="0.026" condim="4" friction="1.4 0.08 0.01" />
+                            <site name="FR_foot_touch" pos="0 0 0" size="0.015" />
+                        </body>
+                    </body>
+                </body>
+            </body>
+            <body name="RR_hip" pos="-0.2987 -0.06 0" quat="1 0 0 0">
+                <inertial pos="-0.00414483 0.02428541 -0.00047429" mass="1.94175758" fullinertia="0.0021062 0.0036609 0.00248649 7.994e-05 4.41e-06 4.4e-06" />
+                <joint name="RR_hip_joint" type="hinge" axis="1 0 0" damping="1" limited="true" range="-0.741764919444444 0.741764919444444" />
+                <geom pos="0 0 0" quat="1 0 0 0" rgba="0.8 1.0 0.8 1" type="mesh" mesh="RR_hip_visual_RL_HIP_mirror" contype="0" conaffinity="0" />
+                <body name="RR_thigh" pos="0 -0.1361 0" quat="1 0 0 0">
+                    <inertial pos="-0.00656356 0.02752354 -0.03754152" mass="3.70524072" fullinertia="0.02670343 0.02649136 0.0068689 -0.00062533 -0.00208327 -0.00371242" />
+                    <joint name="RR_thigh_joint" type="hinge" axis="0 1 0" damping="1" limited="true" range="-1.221730456 3.839724289" />
+                    <geom pos="0 0 0" quat="1 0 0 0" rgba="1 0.5 1 1" type="mesh" mesh="RR_thigh_visual_FL_THIGH_mirror" contype="0" conaffinity="0" />
+                    <geom pos="0 0.04 0" quat="0.5003981634 0.4999998415 0.4999998415 -0.4996018366" class="collision" type="cylinder" size="0.065 0.06" />
+                    <geom pos="-0.03158 0 -0.09691" quat="0.9887710779 0 0.1494381325 0" class="collision" type="box" size="0.03184 0.023 0.09882" />
+                    <geom pos="-0.025 0 -0.23181" quat="0.9689124217 0 -0.2474039593 0" class="collision" type="box" size="0.025 0.023 0.065" />
+                    <body name="RR_calf" pos="0 -0 -0.28" quat="1 0 0 0">
+                        <inertial pos="0.01721758 -0.00046932 -0.13605748" mass="0.36964069" fullinertia="0.00452796 0.00466323 0.00021316 -2.24e-06 5.207e-05 -2.151e-05" />
+                        <joint name="RR_calf_joint" type="hinge" axis="0 1 0" damping="1" limited="true" range="-2.754164416 -1.035626001" />
+                        <geom pos="0 0 0" quat="1 0 0 0" rgba="1 0.4 0.4 1" type="mesh" mesh="RR_calf_visual_FL_CALF_mirror" contype="0" conaffinity="0" />
+                        <geom pos="0.025 0 -0.06536" quat="0.9887710779 0 -0.1494381325 0" class="collision" type="box" size="0.0165 0.0165 0.08" />
+                        <geom pos="0.028 0 -0.2" quat="0.9902159962 0 0.1395431146 0" class="collision" type="box" size="0.018 0.018 0.08" />
+                        <body name="RR_foot" pos="0 -0 -0.28" quat="0.7073882692 -0.7068251811 0 0">
+                            <inertial pos="0 -0 0" mass="0.02" fullinertia="1.096000666e-09 1.096000666e-09 1.096000666e-09 -0 0 -0" />
+                            <geom name="RR_foot_visual" pos="0 0 0" quat="1 0 0 0" rgba="0 0.5 1 1" type="sphere" size="0.026" contype="0" conaffinity="0" />
+                            <geom name="RR_foot_collision" pos="0 0 0" quat="1 0 0 0" class="collision" type="sphere" size="0.026" condim="4" friction="1.4 0.08 0.01" />
+                            <site name="RR_foot_touch" pos="0 0 0" size="0.015" />
+                        </body>
+                    </body>
+                </body>
+            </body>
+            <body name="piperL_world" pos="0.19 0 0.088" quat="1 0 0 0">
+                <body name="piperL_base_link" pos="0 0 0" quat="1 0 0 0">
+                    <inertial pos="-0.004736411642 2.568291346e-05 0.04145151804" mass="1.02" fullinertia="0.00267433 0.00282612 0.00089624 -7.3e-07 -0.00017389 4e-07" />
+                    <geom pos="0 0 0" quat="1 0 0 0" type="mesh" mesh="piperL_base_link_visual_base_link_6" contype="0" conaffinity="0" />
+                    <geom pos="0 0 0" quat="1 0 0 0" class="collision" type="mesh" mesh="piperL_base_link_collision_base_link_7" />
+                    <body name="link1" pos="0 0 0.123" quat="1 0 0 0">
+                        <inertial pos="0.00032 -0.00041 -0.00348" mass="0.71" fullinertia="0.00050027 0.00040879 0.00045802 7.8e-07 6.26e-06 4.62e-06" />
+                        <joint name="link1_joint" type="hinge" axis="0 0 1" damping="1" limited="true" range="-2.6179938 2.6179938" />
+                        <geom pos="0 0 0" quat="1 0 0 0" type="mesh" mesh="link1_visual_link1_8" contype="0" conaffinity="0" />
+                        <geom pos="0 0 0" quat="1 0 0 0" class="collision" type="mesh" mesh="link1_collision_link1_9" />
+                        <body name="link2" pos="0 0 0" quat="0.04797095758 -0.04797092106 -0.7054776945 -0.7054777108">
+                            <inertial pos="0.25852 -0.00861 0.00126" mass="1.16" fullinertia="0.00111915 0.06763251 0.067559 0.00182916 0.00019233 7.67e-06" />
+                            <joint name="link2_joint" type="hinge" axis="0 0 1" damping="1" limited="true" range="0 3.1415926" />
+                            <geom pos="0 0 0" quat="1 0 0 0" type="mesh" mesh="link2_visual_link2_10" contype="0" conaffinity="0" />
+                            <geom pos="0 0 0" quat="1 0 0 0" class="collision" type="mesh" mesh="link2_collision_link2_11" />
+                            <body name="link3" pos="0.33823 0 0" quat="0.6240159903 0 0 -0.7814115714">
+                                <inertial pos="-0.01999 -0.20808 -0.00053" mass="0.5" fullinertia="0.01347608 0.00046377 0.01363321 0.00161034 6.6e-07 1.62e-06" />
+                                <joint name="link3_joint" type="hinge" axis="0 0 1" damping="1" limited="true" range="-2.9670597 0" />
+                                <geom pos="0 0 0" quat="1 0 0 0" type="mesh" mesh="link3_visual_link3_12" contype="0" conaffinity="0" />
+                                <geom pos="0 0 0" quat="1 0 0 0" class="collision" type="mesh" mesh="link3_collision_link3_13" />
+                                <body name="link4" pos="-0.02301 -0.32075 0" quat="0.7071067907 0.7071067717 0 0">
+                                    <inertial pos="0.00013 -0.00076 -0.00394" mass="0.38" fullinertia="0.00017844 0.00018914 0.00014613 6.2e-07 6.7e-07 4.08e-06" />
+                                    <joint name="link4_joint" type="hinge" axis="0 0 1" damping="1" limited="true" range="-2.2165681 2.2165681" />
+                                    <geom pos="0 0 0" quat="1 0 0 0" type="mesh" mesh="link4_visual_link4_14" contype="0" conaffinity="0" />
+                                    <geom pos="0 0 0" quat="1 0 0 0" class="collision" type="mesh" mesh="link4_collision_link4_15" />
+                                    <body name="link5" pos="0 0 0" quat="0.7071067907 -0.7071067717 0 0">
+                                        <inertial pos="0.00018 -0.06104 -0.00227" mass="0.39" fullinertia="0.00172318 0.00017936 0.00171172 2.59e-06 1e-07 9.9e-06" />
+                                        <joint name="link5_joint" type="hinge" axis="0 0 1" damping="1" limited="true" range="-1.5620696 1.5620696" />
+                                        <geom pos="0 0 0" quat="1 0 0 0" type="mesh" mesh="link5_visual_link5_16" contype="0" conaffinity="0" />
+                                        <geom pos="0 0 0" quat="1 0 0 0" class="collision" type="mesh" mesh="link5_collision_link5_17" />
+                                        <body name="link6" pos="0 -0.091 0" quat="0.7071067907 0.7071067717 0 0">
+                                            <inertial pos="-3e-05 6e-05 -0.002" mass="0.007" fullinertia="0.00152112 0.00138626 0.00031152 2.02e-06 2.61e-06 2e-08" />
+                                            <joint name="link6_joint" type="hinge" axis="0 0 1" damping="2.5" armature="0.006" frictionloss="0.02" limited="true" range="-2.0943951 2.0943951" />
+                                            <geom pos="0 0 0" quat="1 0 0 0" type="mesh" mesh="link6_visual_link6_18" contype="0" conaffinity="0" />
+                                            <geom pos="0 0 0" quat="1 0 0 0" class="collision" type="mesh" mesh="link6_collision_link6_19" />
+                                            <body name="gripper_hook" pos="0 0 0" quat="0.7071067812 0.7071067812 0 0">
+                                                <inertial pos="0.00244764 0.03660633 -0.00005179" mass="0.80225" fullinertia="0.00095 0.00100 0.00115 0 0 0" />
+                                                <geom pos="-0.05092357 0 0.02525000" quat="0.7071067812 0 0.7071067812 0" rgba="0.9 0.9 0.85 1" type="mesh" mesh="gripper_hook_visual_base_20" contype="0" conaffinity="0" />
+                                                <geom pos="0.05197534 0 -0.02535000" quat="0.7071067812 0 -0.7071067812 0" rgba="0.75 0.75 0.72 1" type="mesh" mesh="gripper_hook_visual_hook_21" contype="0" conaffinity="0" />
+                                                <geom name="gripper_hook_axis_x" pos="0.025 0 0" quat="1 0 0 0" type="box" size="0.025 0.002 0.002" rgba="1 0 0 1" contype="0" conaffinity="0" density="0" />
+                                                <geom name="gripper_hook_axis_y" pos="0 0.025 0" quat="1 0 0 0" type="box" size="0.002 0.025 0.002" rgba="0 0.85 0 1" contype="0" conaffinity="0" density="0" />
+                                                <geom name="gripper_hook_axis_z" pos="0 0 0.025" quat="1 0 0 0" type="box" size="0.002 0.002 0.025" rgba="0.1 0.35 1 1" contype="0" conaffinity="0" density="0" />
+                                                <!-- CoACD convex decomposition collision meshes for the hook gripper. -->
+                                                <geom name="gripper_base_col_00" pos="-0.05092357 0 0.02525000" quat="0.7071067812 0 0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.65 0.02 0.002" margin="0.0005" solref="0.012 1.2" mesh="gripper_base_collision_00" />
+                                                <geom name="gripper_base_col_01" pos="-0.05092357 0 0.02525000" quat="0.7071067812 0 0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.65 0.02 0.002" margin="0.0005" solref="0.012 1.2" mesh="gripper_base_collision_01" />
+                                                <geom name="gripper_base_col_02" pos="-0.05092357 0 0.02525000" quat="0.7071067812 0 0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.65 0.02 0.002" margin="0.0005" solref="0.012 1.2" mesh="gripper_base_collision_02" />
+                                                <geom name="gripper_base_col_03" pos="-0.05092357 0 0.02525000" quat="0.7071067812 0 0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.65 0.02 0.002" margin="0.0005" solref="0.012 1.2" mesh="gripper_base_collision_03" />
+                                                <geom name="gripper_base_col_04" pos="-0.05092357 0 0.02525000" quat="0.7071067812 0 0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.65 0.02 0.002" margin="0.0005" solref="0.012 1.2" mesh="gripper_base_collision_04" />
+                                                <geom name="gripper_base_col_05" pos="-0.05092357 0 0.02525000" quat="0.7071067812 0 0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.65 0.02 0.002" margin="0.0005" solref="0.012 1.2" mesh="gripper_base_collision_05" />
+                                                <geom name="gripper_base_col_06" pos="-0.05092357 0 0.02525000" quat="0.7071067812 0 0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.65 0.02 0.002" margin="0.0005" solref="0.012 1.2" mesh="gripper_base_collision_06" />
+                                                <geom name="gripper_base_col_07" pos="-0.05092357 0 0.02525000" quat="0.7071067812 0 0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.65 0.02 0.002" margin="0.0005" solref="0.012 1.2" mesh="gripper_base_collision_07" />
+                                                <geom name="gripper_base_col_08" pos="-0.05092357 0 0.02525000" quat="0.7071067812 0 0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.65 0.02 0.002" margin="0.0005" solref="0.012 1.2" mesh="gripper_base_collision_08" />
+                                                <geom name="gripper_base_col_09" pos="-0.05092357 0 0.02525000" quat="0.7071067812 0 0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.65 0.02 0.002" margin="0.0005" solref="0.012 1.2" mesh="gripper_base_collision_09" />
+                                                <geom name="gripper_base_col_10" pos="-0.05092357 0 0.02525000" quat="0.7071067812 0 0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.65 0.02 0.002" margin="0.0005" solref="0.012 1.2" mesh="gripper_base_collision_10" />
+                                                <geom name="gripper_base_col_11" pos="-0.05092357 0 0.02525000" quat="0.7071067812 0 0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.65 0.02 0.002" margin="0.0005" solref="0.012 1.2" mesh="gripper_base_collision_11" />
+                                                <geom name="gripper_hook_col_00" pos="0.05197534 0 -0.02535000" quat="0.7071067812 0 -0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.05 0.005 0.0005" margin="0.0005" solref="0.012 1.2" mesh="gripper_hook_collision_00" />
+                                                <geom name="gripper_hook_col_01" pos="0.05197534 0 -0.02535000" quat="0.7071067812 0 -0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.05 0.005 0.0005" margin="0.0005" solref="0.012 1.2" mesh="gripper_hook_collision_01" />
+                                                <geom name="gripper_hook_col_02" pos="0.05197534 0 -0.02535000" quat="0.7071067812 0 -0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.05 0.005 0.0005" margin="0.0005" solref="0.012 1.2" mesh="gripper_hook_collision_02" />
+                                                <geom name="gripper_hook_col_03" pos="0.05197534 0 -0.02535000" quat="0.7071067812 0 -0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.05 0.005 0.0005" margin="0.0005" solref="0.012 1.2" mesh="gripper_hook_collision_03" />
+                                                <geom name="gripper_hook_col_04" pos="0.05197534 0 -0.02535000" quat="0.7071067812 0 -0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.05 0.005 0.0005" margin="0.0005" solref="0.012 1.2" mesh="gripper_hook_collision_04" />
+                                                <geom name="gripper_hook_col_05" pos="0.05197534 0 -0.02535000" quat="0.7071067812 0 -0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.05 0.005 0.0005" margin="0.0005" solref="0.012 1.2" mesh="gripper_hook_collision_05" />
+                                                <geom name="gripper_hook_col_06" pos="0.05197534 0 -0.02535000" quat="0.7071067812 0 -0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.05 0.005 0.0005" margin="0.0005" solref="0.012 1.2" mesh="gripper_hook_collision_06" />
+                                                <geom name="gripper_hook_col_07" pos="0.05197534 0 -0.02535000" quat="0.7071067812 0 -0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.05 0.005 0.0005" margin="0.0005" solref="0.012 1.2" mesh="gripper_hook_collision_07" />
+                                                <geom name="gripper_hook_col_08" pos="0.05197534 0 -0.02535000" quat="0.7071067812 0 -0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.05 0.005 0.0005" margin="0.0005" solref="0.012 1.2" mesh="gripper_hook_collision_08" />
+                                                <geom name="gripper_hook_col_09" pos="0.05197534 0 -0.02535000" quat="0.7071067812 0 -0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.05 0.005 0.0005" margin="0.0005" solref="0.012 1.2" mesh="gripper_hook_collision_09" />
+                                                <geom name="gripper_hook_col_10" pos="0.05197534 0 -0.02535000" quat="0.7071067812 0 -0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.05 0.005 0.0005" margin="0.0005" solref="0.012 1.2" mesh="gripper_hook_collision_10" />
+                                                <geom name="gripper_hook_col_11" pos="0.05197534 0 -0.02535000" quat="0.7071067812 0 -0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.05 0.005 0.0005" margin="0.0005" solref="0.012 1.2" mesh="gripper_hook_collision_11" />
+                                                <geom name="gripper_hook_col_12" pos="0.05197534 0 -0.02535000" quat="0.7071067812 0 -0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.05 0.005 0.0005" margin="0.0005" solref="0.012 1.2" mesh="gripper_hook_collision_12" />
+                                                <geom name="gripper_hook_col_13" pos="0.05197534 0 -0.02535000" quat="0.7071067812 0 -0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.05 0.005 0.0005" margin="0.0005" solref="0.012 1.2" mesh="gripper_hook_collision_13" />
+                                                <geom name="gripper_hook_col_14" pos="0.05197534 0 -0.02535000" quat="0.7071067812 0 -0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.05 0.005 0.0005" margin="0.0005" solref="0.012 1.2" mesh="gripper_hook_collision_14" />
+                                                <geom name="gripper_hook_col_15" pos="0.05197534 0 -0.02535000" quat="0.7071067812 0 -0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.05 0.005 0.0005" margin="0.0005" solref="0.012 1.2" mesh="gripper_hook_collision_15" />
+                                                <geom name="gripper_hook_col_16" pos="0.05197534 0 -0.02535000" quat="0.7071067812 0 -0.7071067812 0" class="collision" type="mesh" condim="4" friction="0.05 0.005 0.0005" margin="0.0005" solref="0.012 1.2" mesh="gripper_hook_collision_16" />
+                                                <body name="gripper_tcp" pos="0.0183 0.1085 0" quat="1 0 0 0">
+                                                    <site name="gripper_tcp" pos="0 0 0" type="sphere" size="0.004" rgba="0.1 0.9 1 1" />
+                                                    <site name="gripper_tcp_x" pos="0.020 0 0" type="box" size="0.020 0.0015 0.0015" rgba="1 0 0 1" />
+                                                    <site name="gripper_tcp_y" pos="0 0.020 0" type="box" size="0.0015 0.020 0.0015" rgba="0 0.85 0 1" />
+                                                    <site name="gripper_tcp_z" pos="0 0 0.020" type="box" size="0.0015 0.0015 0.020" rgba="0.1 0.35 1 1" />
+                                                </body>
+                                                <body name="gripper_grasp_center" pos="0.0183 0.0880 0" quat="1 0 0 0">
+                                                    <site name="gripper_grasp_center" pos="0 0 0" type="sphere" size="0.006" rgba="0.1 1 0.35 0.45" />
+                                                    <site name="gripper_grasp_center_x" pos="0.018 0 0" type="box" size="0.018 0.0015 0.0015" rgba="1 0 0 0.7" />
+                                                    <site name="gripper_grasp_center_y" pos="0 0.018 0" type="box" size="0.0015 0.018 0.0015" rgba="0 0.85 0 0.7" />
+                                                    <site name="gripper_grasp_center_z" pos="0 0 0.018" type="box" size="0.0015 0.0015 0.018" rgba="0.1 0.35 1 0.7" />
+                                                </body>
+                                            </body>
+                                        </body>
+                                    </body>
+                                </body>
+                            </body>
+                        </body>
+                    </body>
+                </body>
+            </body>
+        </body>
+    </worldbody>
+
+    <actuator>
+        <motor name="motor_FL_hip_joint" joint="FL_hip_joint" ctrlrange="-150 150" />
+        <motor name="motor_FR_hip_joint" joint="FR_hip_joint" ctrlrange="-150 150" />
+        <motor name="motor_RL_hip_joint" joint="RL_hip_joint" ctrlrange="-150 150" />
+        <motor name="motor_RR_hip_joint" joint="RR_hip_joint" ctrlrange="-150 150" />
+        <motor name="motor_FL_thigh_joint" joint="FL_thigh_joint" ctrlrange="-150 150" />
+        <motor name="motor_FR_thigh_joint" joint="FR_thigh_joint" ctrlrange="-150 150" />
+        <motor name="motor_RL_thigh_joint" joint="RL_thigh_joint" ctrlrange="-150 150" />
+        <motor name="motor_RR_thigh_joint" joint="RR_thigh_joint" ctrlrange="-150 150" />
+        <motor name="motor_FL_calf_joint" joint="FL_calf_joint" ctrlrange="-150 150" />
+        <motor name="motor_FR_calf_joint" joint="FR_calf_joint" ctrlrange="-150 150" />
+        <motor name="motor_RL_calf_joint" joint="RL_calf_joint" ctrlrange="-150 150" />
+        <motor name="motor_RR_calf_joint" joint="RR_calf_joint" ctrlrange="-150 150" />
+        <motor name="motor_link1_joint" joint="link1_joint" ctrlrange="-100 100" />
+        <motor name="motor_link2_joint" joint="link2_joint" ctrlrange="-100 100" />
+        <motor name="motor_link3_joint" joint="link3_joint" ctrlrange="-100 100" />
+        <motor name="motor_link4_joint" joint="link4_joint" ctrlrange="-100 100" />
+        <motor name="motor_link5_joint" joint="link5_joint" ctrlrange="-100 100" />
+        <motor name="motor_link6_joint" joint="link6_joint" ctrlrange="-100 100" />
+    </actuator>
+
+    <sensor>
+        <jointpos name="jointpos_FL_hip_joint" joint="FL_hip_joint" />
+        <jointvel name="jointvel_FL_hip_joint" joint="FL_hip_joint" />
+        <jointpos name="jointpos_FR_hip_joint" joint="FR_hip_joint" />
+        <jointvel name="jointvel_FR_hip_joint" joint="FR_hip_joint" />
+        <jointpos name="jointpos_RL_hip_joint" joint="RL_hip_joint" />
+        <jointvel name="jointvel_RL_hip_joint" joint="RL_hip_joint" />
+        <jointpos name="jointpos_RR_hip_joint" joint="RR_hip_joint" />
+        <jointvel name="jointvel_RR_hip_joint" joint="RR_hip_joint" />
+
+        <jointpos name="jointpos_FL_thigh_joint" joint="FL_thigh_joint" />
+        <jointvel name="jointvel_FL_thigh_joint" joint="FL_thigh_joint" />
+        <jointpos name="jointpos_FR_thigh_joint" joint="FR_thigh_joint" />
+        <jointvel name="jointvel_FR_thigh_joint" joint="FR_thigh_joint" />
+        <jointpos name="jointpos_RL_thigh_joint" joint="RL_thigh_joint" />
+        <jointvel name="jointvel_RL_thigh_joint" joint="RL_thigh_joint" />
+        <jointpos name="jointpos_RR_thigh_joint" joint="RR_thigh_joint" />
+        <jointvel name="jointvel_RR_thigh_joint" joint="RR_thigh_joint" />
+
+        <jointpos name="jointpos_FL_calf_joint" joint="FL_calf_joint" />
+        <jointvel name="jointvel_FL_calf_joint" joint="FL_calf_joint" />
+        <jointpos name="jointpos_FR_calf_joint" joint="FR_calf_joint" />
+        <jointvel name="jointvel_FR_calf_joint" joint="FR_calf_joint" />
+        <jointpos name="jointpos_RL_calf_joint" joint="RL_calf_joint" />
+        <jointvel name="jointvel_RL_calf_joint" joint="RL_calf_joint" />
+        <jointpos name="jointpos_RR_calf_joint" joint="RR_calf_joint" />
+        <jointvel name="jointvel_RR_calf_joint" joint="RR_calf_joint" />
+
+        <jointpos name="jointpos_link1_joint" joint="link1_joint" />
+        <jointvel name="jointvel_link1_joint" joint="link1_joint" />
+        <jointpos name="jointpos_link2_joint" joint="link2_joint" />
+        <jointvel name="jointvel_link2_joint" joint="link2_joint" />
+        <jointpos name="jointpos_link3_joint" joint="link3_joint" />
+        <jointvel name="jointvel_link3_joint" joint="link3_joint" />
+        <jointpos name="jointpos_link4_joint" joint="link4_joint" />
+        <jointvel name="jointvel_link4_joint" joint="link4_joint" />
+        <jointpos name="jointpos_link5_joint" joint="link5_joint" />
+        <jointvel name="jointvel_link5_joint" joint="link5_joint" />
+        <jointpos name="jointpos_link6_joint" joint="link6_joint" />
+        <jointvel name="jointvel_link6_joint" joint="link6_joint" />
+
+        <force name="FL_foot" site="FL_foot_touch" />
+        <force name="FR_foot" site="FR_foot_touch" />
+        <force name="RL_foot" site="RL_foot_touch" />
+        <force name="RR_foot" site="RR_foot_touch" />
+
+        <framequat name="body-orientation" objtype="site" objname="imu" />
+        <gyro name="body-angular-velocity" site="imu" />
+        <framepos name="body-linear-pos" objtype="site" objname="imu" />
+        <framelinvel name="body-linear-vel" objtype="site" objname="imu" />
+        <accelerometer name="body-linear-acceleration" site="imu" />
+    </sensor>
+
+    <keyframe>
+        <key name="home" qpos="0 0 0.6 1 0 0 0 -0.05 0.75 -1.5 -0.05 0.75 -1.5 0.05 0.75 -1.5 0.05 0.75 -1.5 0.38 0 -0.97 -0.22 0.44 -0.10 0 0" />
+        <key name="door_ready" qpos="0.15 0 0.6 1 0 0 0 -0.05 0.75 -1.5 -0.05 0.75 -1.5 0.05 0.75 -1.5 0.05 0.75 -1.5 0 0.85 -1.15 0 0.75 0 0 0" />
+        <key name="door_near" qpos="0.35 0 0.6 1 0 0 0 -0.05 0.75 -1.5 -0.05 0.75 -1.5 0.05 0.75 -1.5 0.05 0.75 -1.5 0 0.85 -1.15 0 0.75 0 0 0" />
+    </keyframe>
+</mujoco>

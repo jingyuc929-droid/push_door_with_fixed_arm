@@ -77,6 +77,10 @@ from isaaclab.envs import DirectMARLEnv, DirectMARLEnvCfg, DirectRLEnvCfg, Manag
 from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.dict import print_dict
 from isaaclab_rl.rsl_rl import RslRlBaseRunnerCfg, RslRlVecEnvWrapper
+from door_env.tasks.manager_based.door_env.distillation import (
+    DoorBotDistillationVecEnvWrapper,
+    DoorBotTeacherRunner,
+)
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import get_checkpoint_path
@@ -222,12 +226,23 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         print_dict(video_kwargs, nesting=4)
         env = gym.wrappers.RecordVideo(env, **video_kwargs)
 
-    env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
+    if agent_cfg.class_name == "DoorBotTeacherRunner":
+        env = DoorBotDistillationVecEnvWrapper(
+            env,
+            clip_actions=agent_cfg.clip_actions,
+            history_length=agent_cfg.history_length,
+            transition_thresholds=agent_cfg.stage_transition_thresholds,
+            collect_distillation_rollout=getattr(agent_cfg, "collect_distillation_rollout", False),
+        )
+    else:
+        env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
     base_env = env.unwrapped
     door = base_env.scene["door"]
     door_joint_id = _resolve_door_joint_id(door, args_cli.door_joint_name)
 
-    if agent_cfg.class_name == "OnPolicyRunner":
+    if agent_cfg.class_name == "DoorBotTeacherRunner":
+        runner = DoorBotTeacherRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
+    elif agent_cfg.class_name == "OnPolicyRunner":
         runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
     elif agent_cfg.class_name == "DistillationRunner":
         runner = DistillationRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)

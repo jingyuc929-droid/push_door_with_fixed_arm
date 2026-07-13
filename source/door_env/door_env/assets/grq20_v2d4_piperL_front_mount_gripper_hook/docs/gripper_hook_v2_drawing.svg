@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="620" viewBox="0 0 1000 620">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,4 L0,8 Z" fill="#222"/>
+    </marker>
+    <style>
+      .title { font: 700 24px Arial, sans-serif; fill: #111; }
+      .label { font: 15px Arial, sans-serif; fill: #111; }
+      .small { font: 13px Arial, sans-serif; fill: #333; }
+      .dim { stroke: #222; stroke-width: 1.5; fill: none; marker-start: url(#arrow); marker-end: url(#arrow); }
+      .help { stroke: #777; stroke-width: 1; stroke-dasharray: 5 5; fill: none; }
+      .shape { stroke: #1b6f8f; stroke-width: 28; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+      .center { stroke: #111; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+      .base { fill: #ddd; stroke: #333; stroke-width: 2; }
+      .pocket { fill: rgba(255, 196, 80, 0.35); stroke: #b26b00; stroke-width: 2; }
+    </style>
+  </defs>
+
+  <text x="40" y="42" class="title">Gripper Hook V2 Approximate Drawing</text>
+  <text x="40" y="68" class="small">Units: mm. Side view uses local Y-Z coordinates. Target: wide-mouth rounded C/J capture hook for 36 mm door handle.</text>
+
+  <!-- Side view mapping: screen x = 120 + 3Y, screen y = 260 - 3Z -->
+  <text x="40" y="105" class="label">Side view: Y-Z profile</text>
+  <rect x="102" y="152" width="78" height="216" rx="4" class="base"/>
+  <text x="106" y="145" class="small">mount/base</text>
+
+  <path class="pocket" d="M516 206 C590 206 660 240 666 284 C672 333 604 392 512 406 C454 414 424 397 414 360 C400 309 430 245 516 206 Z"/>
+
+  <polyline class="shape" points="246,206 516,206 618,134 732,236 690,398 510,416 414,386"/>
+  <polyline class="center" points="246,206 516,206 618,134 732,236 690,398 510,416 414,386"/>
+
+  <circle cx="606" cy="284" r="54" fill="none" stroke="#b26b00" stroke-width="2" stroke-dasharray="7 5"/>
+  <text x="622" y="288" class="small">36 mm handle</text>
+  <text x="568" y="328" class="small">pocket center approx Y=162, Z=-8</text>
+
+  <text x="232" y="228" class="small">A 42,18</text>
+  <text x="502" y="228" class="small">B 132,18</text>
+  <text x="622" y="126" class="small">C 166,42</text>
+  <text x="742" y="240" class="small">D 204,8</text>
+  <text x="698" y="416" class="small">E 190,-46</text>
+  <text x="468" y="438" class="small">F 130,-52</text>
+  <text x="380" y="410" class="small">G 98,-42</text>
+
+  <line x1="120" y1="470" x2="732" y2="470" class="dim"/>
+  <text x="384" y="494" class="label">overall forward reach about 204 mm</text>
+  <line x1="120" y1="448" x2="120" y2="492" class="help"/>
+  <line x1="732" y1="236" x2="732" y2="492" class="help"/>
+
+  <line x1="785" y1="206" x2="785" y2="398" class="dim"/>
+  <text x="802" y="306" class="label">useful pocket clearance about 56-62 mm</text>
+  <line x1="516" y1="206" x2="790" y2="206" class="help"/>
+  <line x1="690" y1="398" x2="790" y2="398" class="help"/>
+
+  <!-- Top view -->
+  <text x="40" y="535" class="label">Top view: X-Y envelope</text>
+  <rect x="210" y="520" width="610" height="72" rx="34" fill="#cdebf5" stroke="#1b6f8f" stroke-width="3"/>
+  <line x1="210" y1="602" x2="820" y2="602" class="dim"/>
+  <text x="414" y="618" class="small">Y reach about 204 mm</text>
+  <line x1="850" y1="520" x2="850" y2="592" class="dim"/>
+  <text x="866" y="560" class="small">X width target 60 mm</text>
+  <line x1="510" y1="520" x2="510" y2="592" stroke="#1b6f8f" stroke-width="2" stroke-dasharray="6 5"/>
+  <text x="438" y="511" class="small">two side rails + rounded bridges in collision model</text>
+</svg>

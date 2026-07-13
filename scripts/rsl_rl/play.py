@@ -25,7 +25,7 @@ parser.add_argument(
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
 parser.add_argument(
-    "--agent", type=str, default="rsl_rl_cfg_entry_point", help="Name of the RL agent configuration entry point."
+    "--agent", type=str, default="rsl_rl_teacher_cfg_entry_point", help="Name of the RL agent configuration entry point."
 )
 parser.add_argument("--seed", type=int, default=None, help="Seed used for the environment")
 parser.add_argument(
@@ -40,7 +40,7 @@ parser.add_argument(
     "--force_gripper",
     action="store_true",
     default=False,
-    help="Override the last action dimension (gripper) for a short duration to validate gripper targets/drives.",
+    help="Override a gripper action for older assets. Ignored for the current fixed-hook robot.",
 )
 parser.add_argument(
     "--force_gripper_seconds",
@@ -71,14 +71,14 @@ parser.add_argument(
 parser.add_argument(
     "--left_contact_sensor",
     type=str,
-    default="left_finger_contact",
-    help="Scene name of the left finger contact sensor (ContactSensor).",
+    default="hook_contact",
+    help="Scene name of the primary hook/contact sensor (ContactSensor).",
 )
 parser.add_argument(
     "--right_contact_sensor",
     type=str,
-    default="right_finger_contact",
-    help="Scene name of the right finger contact sensor (ContactSensor).",
+    default="hook_contact",
+    help="Optional second contact sensor. Defaults to the hook sensor for fixed-hook assets.",
 )
 
 # --- Lightweight rollout stats (reduce print spam) ---
@@ -104,7 +104,7 @@ parser.add_argument(
     "--stats_open_width",
     type=float,
     default=0.088,
-    help="Open width used to compute closedness. For X5 single gripper_joint, width is derived as 2*q.",
+    help="Open width used to compute closedness for legacy gripper assets. Ignored for the fixed-hook robot.",
 )
 parser.add_argument(
     "--debug_fingers",
@@ -204,17 +204,23 @@ from isaaclab.envs import (
 )
 from isaaclab.utils.assets import retrieve_file_path
 from isaaclab.utils.dict import print_dict
-from isaaclab.managers import SceneEntityCfg
-from isaaclab_rl.utils.pretrained_checkpoint import get_published_pretrained_checkpoint
+try:
+    from isaaclab_rl.utils.pretrained_checkpoint import get_published_pretrained_checkpoint
+except ModuleNotFoundError:
+    get_published_pretrained_checkpoint = None
 
 from isaaclab_rl.rsl_rl import RslRlBaseRunnerCfg, RslRlVecEnvWrapper, export_policy_as_jit, export_policy_as_onnx
+from door_env.tasks.manager_based.door_env.distillation import (
+    DoorBotDistillationVecEnvWrapper,
+    DoorBotTeacherRunner,
+    export_doorbot_teacher,
+)
 
 import isaaclab_tasks  # noqa: F401
 from isaaclab_tasks.utils import get_checkpoint_path
 from isaaclab_tasks.utils.hydra import hydra_task_config
 
 import door_env.tasks  # noqa: F401
-from door_env.tasks.manager_based.door_env.mdp.rewards import compute_stage1_grasp_quality
 
 
 @hydra_task_config(args_cli.task, args_cli.agent)
@@ -236,8 +242,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
 
     if args_cli.disable_staged_reset:
-        if hasattr(env_cfg, "events") and hasattr(env_cfg.events, "staged_reset"):
-            params = env_cfg.events.staged_reset.params
+        staged_reset = getattr(getattr(env_cfg, "events", None), "staged_reset", None)
+        if staged_reset is not None:
+            params = staged_reset.params
             for key in ("p_grasp_start", "p_unlock_start", "p_opening_start"):
                 if key in params:
                     params[key] = 0.0
@@ -247,8 +254,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             if "p_opening_start" in params:
                 print(f"p_opening_start={params.get('p_opening_start')}")
         else:
-            print("[WARN] Staged reset disabled requested, but env_cfg.events.staged_reset was not found.")
-            print("Staged reset disabled: False")
+            print("[INFO] Staged reset is already disabled or not configured.")
+            print("Staged reset disabled: True")
     else:
         print("Staged reset disabled: False")
 
@@ -257,6 +264,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     log_root_path = os.path.abspath(log_root_path)
     print(f"[INFO] Loading experiment from directory: {log_root_path}")
     if args_cli.use_pretrained_checkpoint:
+        if get_published_pretrained_checkpoint is None:
+            raise RuntimeError(
+                "--use_pretrained_checkpoint is not supported by this isaaclab_rl installation. "
+                "Please pass --checkpoint with a local checkpoint path instead."
+            )
         resume_path = get_published_pretrained_checkpoint("rsl_rl", train_task_name)
         if not resume_path:
             print("[INFO] Unfortunately a pre-trained checkpoint is currently unavailable for this task.")
@@ -299,17 +311,26 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         env = gym.wrappers.RecordVideo(env, **video_kwargs)
 
     # wrap around environment for rsl-rl
-    env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
+    if agent_cfg.class_name == "DoorBotTeacherRunner":
+        env = DoorBotDistillationVecEnvWrapper(
+            env,
+            clip_actions=agent_cfg.clip_actions,
+            history_length=agent_cfg.history_length,
+            transition_thresholds=agent_cfg.stage_transition_thresholds,
+            collect_distillation_rollout=getattr(agent_cfg, "collect_distillation_rollout", False),
+        )
+    else:
+        env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
     base_env = env.unwrapped
         
     # ---------------------------------------------------------------------
-    # Debug/Stats helpers: query finger joint ids, body ids, sensors, and targets.
+    # Debug/Stats helpers: query current fixed-hook robot ids, optional legacy gripper ids, sensors, and targets.
     # ---------------------------------------------------------------------
     robot = None
     door = None
     finger_joint_ids = None
-    finger_body_ids = None  # (left_body_id, right_body_id)
-    hand_body_id = None  # (left_body_id, right_body_id)
+    finger_body_ids = None  # legacy gripper assets only: (left_body_id, right_body_id)
+    hand_body_id = None  # current hook grasp center, falling back to hook/link6
     handle_body_id = None
     q_target_field = None
     left_sensor = None
@@ -322,7 +343,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         except Exception:
             door = None
 
-        # contact sensors (we fetch them for stats even if not printing)
+        # contact sensors (for the current fixed-hook robot both names default to hook_contact)
         try:
             left_sensor = base_env.scene[args_cli.left_contact_sensor]
         except Exception:
@@ -333,8 +354,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             right_sensor = None
         if (left_sensor is None or right_sensor is None) and (args_cli.debug_setup or args_cli.print_contact_forces):
             print(
-                f"[WARN] Contact sensor(s) not found. left='{args_cli.left_contact_sensor}' -> {left_sensor is not None}, "
-                f"right='{args_cli.right_contact_sensor}' -> {right_sensor is not None}."
+                f"[WARN] Contact sensor(s) not found. primary='{args_cli.left_contact_sensor}' -> {left_sensor is not None}, "
+                f"secondary='{args_cli.right_contact_sensor}' -> {right_sensor is not None}."
             )
 
         # joint name -> id mapping
@@ -361,15 +382,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # body name -> id mapping (for wrap alignment stats)
         if hasattr(robot, "data") and hasattr(robot.data, "body_names"):
             bnames_r = list(robot.data.body_names)
-            # Prefer true fingertip/pad bodies if present; otherwise fall back to finger links.
+            # Current fixed-hook asset uses gripper_grasp_center/gripper_hook. Finger bodies are legacy-only.
             left_candidates = ["left_pad", "left_finger", "link7"]
             right_candidates = ["right_pad", "right_finger", "link8"]
             left_bid = next((bnames_r.index(n) for n in left_candidates if n in bnames_r), None)
             right_bid = next((bnames_r.index(n) for n in right_candidates if n in bnames_r), None)
             if left_bid is not None and right_bid is not None:
                 finger_body_ids = (left_bid, right_bid)
-            if "link6" in bnames_r:
-                hand_body_id = bnames_r.index("link6")
+            hand_candidates = ["gripper_grasp_center", "gripper_hook", "gripper_tcp", "link6"]
+            hand_body_id = next((bnames_r.index(n) for n in hand_candidates if n in bnames_r), None)
         if door is not None and hasattr(door, "data") and hasattr(door.data, "body_names"):
             bnames_d = list(door.data.body_names)
             if "handle_1" in bnames_d:
@@ -391,8 +412,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 jexpr = getattr(act, "joint_names_expr", None)
                 print(f"  - {name}: joint_ids={jids} joint_names={jnames} expr={jexpr}")
 
-            print(f"[DEBUG] Finger joint ids: {finger_joint_ids}")
-            print(f"[DEBUG] Finger body ids: {finger_body_ids}, handle_body_id: {handle_body_id}")
+            print(f"[DEBUG] Legacy gripper joint ids: {finger_joint_ids}")
+            print(f"[DEBUG] Hook/hand body id: {hand_body_id}, legacy finger body ids: {finger_body_ids}, handle_body_id: {handle_body_id}")
             print(f"[DEBUG] Target field: {q_target_field}")
 
     except Exception as e:
@@ -416,6 +437,100 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     def _quat_rotate(q, v):
         qv = torch.cat((torch.zeros_like(v[..., :1]), v), dim=-1)
         return _quat_mul(_quat_mul(q, qv), _quat_conjugate(q))[..., 1:]
+
+    def _start_pick_stance_debug(
+        base_env,
+        handle_offset_h,
+        stance_offset_w,
+        std: float,
+        env_index: int = 0,
+        update_hz: float = 10.0,
+    ):
+        """Draw the exact base_to_pick_stance target used by the Stage-0 reward."""
+        try:
+            import omni.kit.app
+            import omni.ui as ui
+            from isaacsim.util.debug_draw import _debug_draw
+            debug_robot = base_env.scene["robot"]
+            debug_door = base_env.scene["door"]
+            debug_handle_id = list(debug_door.data.body_names).index("handle_1")
+            draw = _debug_draw.acquire_debug_draw_interface()
+        except Exception as exc:
+            print(f"[WARN] Pick-stance debug draw unavailable: {exc}")
+            return None, None
+
+        window = ui.Window("Stage-0 Pick Stance", width=390, height=105)
+        with window.frame:
+            with ui.VStack(spacing=4):
+                label_target = ui.Label("stance_w: --")
+                label_distance = ui.Label("base XY distance / reward: --")
+
+        period = 1.0 / max(float(update_hz), 1.0)
+        last_update = 0.0
+
+        def _on_update(_event):
+            nonlocal last_update
+            now = time.time()
+            if now - last_update < period:
+                return
+            last_update = now
+            try:
+                handle_pos = debug_door.data.body_pos_w[env_index, debug_handle_id]
+                handle_quat = debug_door.data.body_quat_w[env_index, debug_handle_id]
+                handle_offset = torch.tensor(
+                    handle_offset_h, device=handle_pos.device, dtype=handle_pos.dtype
+                ).view(1, 3)
+                grasp_target = handle_pos + _quat_rotate(handle_quat.view(1, 4), handle_offset)[0]
+                stance = grasp_target + torch.tensor(
+                    stance_offset_w, device=handle_pos.device, dtype=handle_pos.dtype
+                )
+                base_pos = debug_robot.data.root_pos_w[env_index]
+                dist_xy = torch.linalg.norm(base_pos[:2] - stance[:2])
+                stance_reward = torch.exp(-torch.square(dist_xy / max(float(std), 1.0e-6)))
+
+                grasp_point = tuple(float(x) for x in grasp_target.tolist())
+                stance_point = tuple(float(x) for x in stance.tolist())
+                # The reward only uses XY. Project its marker slightly above the
+                # ground so a negative/unused stance Z remains visible.
+                stance_draw_point = (stance_point[0], stance_point[1], 0.03)
+                base_point = (float(base_pos[0].item()), float(base_pos[1].item()), 0.03)
+                draw.clear_points()
+                draw.clear_lines()
+                # Cyan is the handle-offset grasp target; yellow is the base stance.
+                draw.draw_points(
+                    [grasp_point, stance_draw_point],
+                    [(0.0, 1.0, 1.0, 1.0), (1.0, 0.85, 0.0, 1.0)],
+                    [12.0, 20.0],
+                )
+                draw.draw_lines(
+                    [base_point, stance_draw_point, stance_draw_point, stance_draw_point],
+                    [
+                        stance_draw_point,
+                        (stance_draw_point[0] + 0.10, stance_draw_point[1], stance_draw_point[2]),
+                        (stance_draw_point[0], stance_draw_point[1] + 0.10, stance_draw_point[2]),
+                        (stance_draw_point[0], stance_draw_point[1], stance_draw_point[2] + 0.10),
+                    ],
+                    [
+                        (1.0, 0.85, 0.0, 1.0),
+                        (1.0, 0.0, 0.0, 1.0),
+                        (0.0, 1.0, 0.0, 1.0),
+                        (0.1, 0.35, 1.0, 1.0),
+                    ],
+                    [3.0, 4.0, 4.0, 4.0],
+                )
+                label_target.text = (
+                    f"stance_w: ({stance_point[0]:.3f}, {stance_point[1]:.3f}, {stance_point[2]:.3f})"
+                )
+                label_distance.text = (
+                    f"base XY distance: {float(dist_xy.item()):.3f} m  |  raw reward: {float(stance_reward.item()):.4f}"
+                )
+            except Exception as exc:
+                label_target.text = "stance_w: ERR"
+                label_distance.text = f"pick stance draw error: {exc}"
+
+        stream = omni.kit.app.get_app().get_update_event_stream()
+        subscription = stream.create_subscription_to_pop(_on_update)
+        return window, subscription
 
     def _filtered_force_norm(sensor):
         """Per-env norm of HANDLE-FILTERED force using force_matrix_w (safe-fail to zeros)."""
@@ -534,19 +649,27 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             self.door = self._scene_asset("door")
             self.left_sensor = self._scene_asset(args_cli.left_contact_sensor, warn=False)
             self.right_sensor = self._scene_asset(args_cli.right_contact_sensor, warn=False)
-            self.robot_joint_ids = self._joint_ids(self.robot, [f"joint{i}" for i in range(1, 7)], "robot arm joints")
+            self.robot_joint_ids = self._joint_ids(
+                self.robot,
+                [f"link{i}_joint" for i in range(1, 7)],
+                "Piper arm joints",
+            )
             self.gripper_joint_ids = self._joint_ids(self.robot, ["gripper_joint"], "gripper_joint", required=False)
             self.door_joint_id = self._joint_ids(self.door, ["door_joint"], "door_joint", required=False)
             self.handle_joint_id = self._joint_ids(self.door, ["handle_joint"], "handle_joint", required=False)
             self.link6_body_id = self._body_id(self.robot, "link6", "link6")
+            self.grasp_center_body_id = self._body_id(
+                self.robot,
+                "gripper_grasp_center",
+                "gripper_grasp_center",
+                required=False,
+            )
+            self.gripper_hook_body_id = self._body_id(self.robot, "gripper_hook", "gripper_hook", required=False)
             self.handle_body_id = self._body_id(self.door, "handle_1", "handle_1")
             self.left_body_id = self._body_id(self.robot, "link7", "left finger link7", required=False)
             self.right_body_id = self._body_id(self.robot, "link8", "right finger link8", required=False)
             self.arm_action_term = self._action_term("arm_action")
-            self.gripper_action_term = self._action_term("gripper_action")
-
-            self.quality_cfgs = None
-            self._init_quality_cfgs()
+            self.gripper_action_term = self._action_term("gripper_action", warn=False)
 
             print(f"[TRAJ] Recording success trajectories to: {self.output_dir}")
             print(f"[TRAJ] success_door_open_threshold={self.success_threshold:.3f}, max_success={self.max_success}")
@@ -588,10 +711,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 self._warn_once(f"body:{label}", f"Missing body {name}; available={available}")
             return None
 
-        def _action_term(self, name: str):
+        def _action_term(self, name: str, warn: bool = True):
             action_manager = getattr(self.base_env, "action_manager", None)
             if action_manager is None:
-                self._warn_once("action_manager", "action_manager not found; low-level action fields use NaN.")
+                if warn:
+                    self._warn_once("action_manager", "action_manager not found; low-level action fields use NaN.")
                 return None
             if hasattr(action_manager, "_terms") and name in action_manager._terms:
                 return action_manager._terms[name]
@@ -600,24 +724,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                     return action_manager.get_term(name)
                 except Exception:
                     pass
-            self._warn_once(f"action:{name}", f"Action term '{name}' not found; related fields use NaN.")
+            if warn:
+                self._warn_once(f"action:{name}", f"Action term '{name}' not found; related fields use NaN.")
             return None
-
-        def _init_quality_cfgs(self):
-            try:
-                cfgs = {
-                    "hand_cfg": SceneEntityCfg("robot", body_names=["link6"]),
-                    "handle_cfg": SceneEntityCfg("door", body_names=["handle_1"]),
-                    "left_finger_cfg": SceneEntityCfg("robot", body_names=["link7"]),
-                    "right_finger_cfg": SceneEntityCfg("robot", body_names=["link8"]),
-                    "gripper_cfg": SceneEntityCfg("robot", joint_names=["gripper_joint"]),
-                }
-                for cfg in cfgs.values():
-                    cfg.resolve(self.base_env.scene)
-                self.quality_cfgs = cfgs
-            except Exception as e:
-                self.quality_cfgs = None
-                self._warn_once("quality_cfgs", f"Could not initialize grasp-quality helper: {e}")
 
         def _nan_vec(self, dim: int):
             return [float("nan")] * dim
@@ -661,13 +770,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 self._warn_once(f"action_attr:{attr}", f"Could not read action term attribute '{attr}': {e}")
                 return torch.full((self.num_envs, dim), float("nan"), device=self.device)
 
-        def _quality_terms(self):
+        def _contact_force(self):
+            if self.left_sensor is None:
+                return torch.full((self.num_envs,), float("nan"), device=self.device)
+            return _filtered_force_norm(self.left_sensor)
+
+        def _hook_quality_terms(self):
             nan = torch.full((self.num_envs,), float("nan"), device=self.device)
             false = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
             defaults = {
                 "quality": nan,
                 "contact_ok": false,
-                "closedness": nan,
+                "closedness": torch.ones((self.num_envs,), device=self.device),
                 "tcp_dist": nan,
                 "f_left": nan,
                 "f_right": nan,
@@ -676,20 +790,63 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 "closed_no_contact": false,
                 "single_finger": false,
             }
-            if self.quality_cfgs is None:
+            if (
+                self.robot is None
+                or self.door is None
+                or self.handle_body_id is None
+                or self.grasp_center_body_id is None
+            ):
                 return defaults
             try:
-                terms = compute_stage1_grasp_quality(
-                    self.base_env,
-                    left_sensor_name=args_cli.left_contact_sensor,
-                    right_sensor_name=args_cli.right_contact_sensor,
-                    **self.quality_cfgs,
+                p_grasp = self.robot.data.body_pos_w[:, self.grasp_center_body_id, :]
+                q_grasp = self.robot.data.body_quat_w[:, self.grasp_center_body_id, :]
+                p_handle = self.door.data.body_pos_w[:, self.handle_body_id, :]
+                q_handle = self.door.data.body_quat_w[:, self.handle_body_id, :]
+                handle_offset = torch.tensor(
+                    (-0.08, 0.04, 0.01),
+                    dtype=p_handle.dtype,
+                    device=self.device,
+                ).view(1, 3).repeat(self.num_envs, 1)
+                p_target = p_handle + _quat_rotate(q_handle, handle_offset)
+                dist = torch.linalg.norm(p_grasp - p_target, dim=-1)
+
+                # Match the current hook reward geometry: hook approach +Y should face handle -Y.
+                hook_approach_hand = torch.tensor((0.0, 1.0, 0.0), dtype=p_grasp.dtype, device=self.device).view(1, 3)
+                hook_mouth_hand = torch.tensor((1.0, 0.0, 0.0), dtype=p_grasp.dtype, device=self.device).view(1, 3)
+                world_down = torch.tensor((0.0, 0.0, -1.0), dtype=p_grasp.dtype, device=self.device).view(1, 3)
+                approach_w = _quat_rotate(q_grasp, hook_approach_hand.repeat(self.num_envs, 1))
+                mouth_w = _quat_rotate(q_grasp, hook_mouth_hand.repeat(self.num_envs, 1))
+                handle_y_w = _quat_rotate(
+                    q_handle,
+                    torch.tensor((0.0, 1.0, 0.0), dtype=p_grasp.dtype, device=self.device).view(1, 3).repeat(self.num_envs, 1),
                 )
-                defaults.update(terms)
+                approach_score = torch.clamp(torch.sum(approach_w * (-handle_y_w), dim=-1), min=0.0, max=1.0)
+                mouth_down_score = torch.clamp(torch.sum(mouth_w * world_down, dim=-1), min=0.0, max=1.0)
+                align = 0.70 * approach_score + 0.30 * mouth_down_score
+
+                force = self._contact_force()
+                contact_ok = torch.isfinite(force) & (force > float(args_cli.stats_contact_threshold))
+                near_score = torch.exp(-torch.square(dist / 0.14))
+                quality = near_score * align * torch.where(contact_ok, torch.ones_like(align), 0.2 * torch.ones_like(align))
+                defaults.update(
+                    {
+                        "quality": quality,
+                        "contact_ok": contact_ok,
+                        "tcp_dist": dist,
+                        "f_left": force,
+                        "f_right": force,
+                        "f_min": force,
+                        "f_max": force,
+                        "closed_no_contact": (~contact_ok),
+                    }
+                )
                 return defaults
             except Exception as e:
-                self._warn_once("quality_compute", f"Could not compute per-env grasp quality: {e}")
+                self._warn_once("quality_compute", f"Could not compute hook grasp quality: {e}")
                 return defaults
+
+        def _quality_terms(self):
+            return self._hook_quality_terms()
 
         def _batch_state(self, actions, rewards, dones, step_index: int):
             nan1 = torch.full((self.num_envs,), float("nan"), device=self.device)
@@ -708,9 +865,16 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
             link6_pos = self.robot.data.body_pos_w[:, self.link6_body_id, :] if self.robot is not None and self.link6_body_id is not None else nan3
             link6_quat = self.robot.data.body_quat_w[:, self.link6_body_id, :] if self.robot is not None and self.link6_body_id is not None else nan4
-            ee_offset = torch.tensor((0.1523, 0.0, 0.0), dtype=link6_pos.dtype, device=self.device).view(1, 3).repeat(self.num_envs, 1)
-            ee_tcp_pos = link6_pos + _quat_rotate(link6_quat, ee_offset) if torch.isfinite(link6_pos).any() else nan3
-            ee_tcp_quat = link6_quat
+            ee_tcp_pos = (
+                self.robot.data.body_pos_w[:, self.grasp_center_body_id, :]
+                if self.robot is not None and self.grasp_center_body_id is not None
+                else nan3
+            )
+            ee_tcp_quat = (
+                self.robot.data.body_quat_w[:, self.grasp_center_body_id, :]
+                if self.robot is not None and self.grasp_center_body_id is not None
+                else nan4
+            )
 
             handle_pos = self.door.data.body_pos_w[:, self.handle_body_id, :] if self.door is not None and self.handle_body_id is not None else nan3
             handle_quat = self.door.data.body_quat_w[:, self.handle_body_id, :] if self.door is not None and self.handle_body_id is not None else nan4
@@ -1202,14 +1366,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 lbl_prog = ui.Label("progress: --")
                 lbl_unlock = ui.Label("door_unlocked: --")
                 lbl_door = ui.Label("door_joint: --")
-                lbl_q = ui.Label("gripper_joint q(env0): --")
-                lbl_width = ui.Label(f"derived width(env0), open_width={args_cli.stats_open_width:.3f}: --")
-                lbl_closed = ui.Label(f"closedness(env0), open_width={args_cli.stats_open_width:.3f}: --")
-                lbl_closed_mean = ui.Label(f"closed_mean(all envs), open_width={args_cli.stats_open_width:.3f}: --")
-                lbl_tip_gap = ui.Label("tip_gap(env0): --")
-                lbl_contact_l = ui.Label(f"left sensor |F| (env{env_index}): --")
-                lbl_contact_r = ui.Label(f"right sensor |F| (env{env_index}): --")
-                lbl_contact_ok = ui.Label(f"contact_ok both>{args_cli.stats_contact_threshold:.2f} (env{env_index}): --")
+                lbl_q = ui.Label("legacy gripper_joint q(env0): --")
+                lbl_width = ui.Label(f"legacy derived width(env0), open_width={args_cli.stats_open_width:.3f}: --")
+                lbl_closed = ui.Label(f"legacy closedness(env0), open_width={args_cli.stats_open_width:.3f}: --")
+                lbl_closed_mean = ui.Label(f"legacy closed_mean(all envs), open_width={args_cli.stats_open_width:.3f}: --")
+                lbl_tip_gap = ui.Label("legacy tip_gap(env0): --")
+                lbl_contact_l = ui.Label(f"primary contact |F| (env{env_index}): --")
+                lbl_contact_r = ui.Label(f"secondary contact |F| (env{env_index}): --")
+                lbl_contact_ok = ui.Label(f"contact_ok >{args_cli.stats_contact_threshold:.2f} (env{env_index}): --")
                 ui.Separator()
                 btn = ui.Button("Calibrate axes on current frame", clicked_fn=_calibrate_current_frame)
                 lbl_hint = ui.Label("Pause on a good grasp frame, then click the button.")
@@ -1328,23 +1492,23 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             # finger contact sensor readings / contact gate
             try:
                 if left_sensor is None or right_sensor is None:
-                    lbl_contact_l.text = f"left sensor |F| (env{env_index}): N/A"
-                    lbl_contact_r.text = f"right sensor |F| (env{env_index}): N/A"
-                    lbl_contact_ok.text = f"contact_ok both>{args_cli.stats_contact_threshold:.2f} (env{env_index}): N/A"
+                    lbl_contact_l.text = f"primary contact |F| (env{env_index}): N/A"
+                    lbl_contact_r.text = f"secondary contact |F| (env{env_index}): N/A"
+                    lbl_contact_ok.text = f"contact_ok >{args_cli.stats_contact_threshold:.2f} (env{env_index}): N/A"
                 else:
                     f_l = _filtered_force_norm(left_sensor)[env_index]
                     f_r = _filtered_force_norm(right_sensor)[env_index]
                     contact_ok = torch.minimum(f_l, f_r) > float(args_cli.stats_contact_threshold)
-                    lbl_contact_l.text = f"left sensor |F| (env{env_index}): {float(f_l.item()):.4f}"
-                    lbl_contact_r.text = f"right sensor |F| (env{env_index}): {float(f_r.item()):.4f}"
+                    lbl_contact_l.text = f"primary contact |F| (env{env_index}): {float(f_l.item()):.4f}"
+                    lbl_contact_r.text = f"secondary contact |F| (env{env_index}): {float(f_r.item()):.4f}"
                     lbl_contact_ok.text = (
-                        f"contact_ok both>{args_cli.stats_contact_threshold:.2f} "
+                        f"contact_ok >{args_cli.stats_contact_threshold:.2f} "
                         f"(env{env_index}): {bool(contact_ok.item())}"
                     )
             except Exception:
-                lbl_contact_l.text = f"left sensor |F| (env{env_index}): ERR"
-                lbl_contact_r.text = f"right sensor |F| (env{env_index}): ERR"
-                lbl_contact_ok.text = f"contact_ok both>{args_cli.stats_contact_threshold:.2f} (env{env_index}): ERR"
+                lbl_contact_l.text = f"primary contact |F| (env{env_index}): ERR"
+                lbl_contact_r.text = f"secondary contact |F| (env{env_index}): ERR"
+                lbl_contact_ok.text = f"contact_ok >{args_cli.stats_contact_threshold:.2f} (env{env_index}): ERR"
 
             # calibration text
             lbl_open.text = f"gripper_open_axis_hand: {calib_state['gripper_open_axis_hand']}"
@@ -1367,7 +1531,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     print(f"[INFO]: Loading model checkpoint from: {resume_path}")
     # load previously trained model
-    if agent_cfg.class_name == "OnPolicyRunner":
+    if agent_cfg.class_name == "DoorBotTeacherRunner":
+        runner = DoorBotTeacherRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
+    elif agent_cfg.class_name == "OnPolicyRunner":
         runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
     elif agent_cfg.class_name == "DistillationRunner":
         runner = DistillationRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
@@ -1388,18 +1554,19 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # version 2.2 and below
         policy_nn = runner.alg.actor_critic
 
-    # extract the normalizer
-    if hasattr(policy_nn, "actor_obs_normalizer"):
-        normalizer = policy_nn.actor_obs_normalizer
-    elif hasattr(policy_nn, "student_obs_normalizer"):
-        normalizer = policy_nn.student_obs_normalizer
-    else:
-        normalizer = None
-
     # export policy to onnx/jit
     export_model_dir = os.path.join(os.path.dirname(resume_path), "exported")
-    export_policy_as_jit(policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.pt")
-    export_policy_as_onnx(policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.onnx")
+    if agent_cfg.class_name == "DoorBotTeacherRunner":
+        export_doorbot_teacher(policy_nn, path=export_model_dir)
+    else:
+        if hasattr(policy_nn, "actor_obs_normalizer"):
+            normalizer = policy_nn.actor_obs_normalizer
+        elif hasattr(policy_nn, "student_obs_normalizer"):
+            normalizer = policy_nn.student_obs_normalizer
+        else:
+            normalizer = None
+        export_policy_as_jit(policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.pt")
+        export_policy_as_onnx(policy_nn, normalizer=normalizer, path=export_model_dir, filename="policy.onnx")
 
     dt = env.unwrapped.step_dt
 
@@ -1422,6 +1589,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # Start HUD (GUI only)
     # ---------------------------------------------------------------------
     _hud_win, _hud_sub = None, None
+    _stance_win, _stance_sub = None, None
     try:
         if not args_cli.headless:
             _hud_win, _hud_sub = _start_handle_joint_hud(
@@ -1431,6 +1599,17 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 update_hz=20.0,                   # 10~30 都可以
                 handle_start_pos=0.0,
                 handle_threshold=-0.3,
+            )
+            stance_cfg = env_cfg.rewards.stage_gated_door_reward.params["stage0_reward_terms"][
+                "base_to_pick_stance"
+            ]["params"]
+            _stance_win, _stance_sub = _start_pick_stance_debug(
+                base_env=env.unwrapped,
+                env_index=0,
+                handle_offset_h=tuple(stance_cfg["handle_offset_h"]),
+                stance_offset_w=tuple(stance_cfg["stance_offset_w"]),
+                std=float(stance_cfg["std"]),
+                update_hz=10.0,
             )
     except Exception:
         pass
@@ -1448,7 +1627,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
             # Convention: +1 -> open, -1 -> close (Binary action will threshold internally).
             stage = "policy"
             a_policy0 = float(actions[0, -1].item()) if actions.numel() > 0 else 0.0
-            if args_cli.force_gripper and actions.shape[-1] >= 1:
+            if args_cli.force_gripper and actions.shape[-1] > 6:
                 close_val, open_val = -1.0, 1.0
                 if args_cli.force_gripper_pattern == "close":
                     if step_count < force_steps:
@@ -1483,7 +1662,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                 try:
                     # gripper close ratio (after any forced override)
                     close_ratio = 0.0
-                    if actions.shape[-1] >= 1:
+                    if actions.shape[-1] > 6:
                         close_ratio = float((actions[:, -1] < 0.0).float().mean().item())
 
                     # handle-only contact ratio (filtered)
@@ -1526,6 +1705,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
                         sep = torch.abs(L_h[:, 2] - R_h[:, 2]) > float(args_cli.stats_min_sep)
                         align = (side & sep).float()
                         align_ratio = float(align.mean().item())
+                    elif (robot is not None) and (door is not None) and (hand_body_id is not None) and (handle_body_id is not None):
+                        pG0 = robot.data.body_pos_w[:, hand_body_id, :]
+                        pH = door.data.body_pos_w[:, handle_body_id, :]
+                        qH = door.data.body_quat_w[:, handle_body_id, :]
+                        off = torch.tensor([-0.08, 0.04, 0.01], device=pH.device, dtype=pH.dtype).unsqueeze(0).repeat(pH.shape[0], 1)
+                        pTarget = pH + _quat_rotate(qH, off)
+                        dist = torch.linalg.norm(pG0 - pTarget, dim=-1)
+                        dist_mean = float(dist.mean().item())
 
                     # closedness mean from finger joints
                     if (robot is not None) and (finger_joint_ids is not None) and (len(finger_joint_ids) >= 1):
